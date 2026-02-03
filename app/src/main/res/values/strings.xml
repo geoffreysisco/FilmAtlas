@@ -1,0 +1,25 @@
+<resources>
+    <string name="app_name">Film Atlas</string>
+    <string name="close">close button</string>
+    <string name="search_movie_hint">Search for a movie</string>
+    <string name="clear_search">Clear search</string>
+    <string name="empty_search_results">No movies were found.\nTry adding a year (e.g., “Up 2009”).</string>
+    <string name="empty_search_cleared">Search for any movie.\nAdd a year for better results.</string>
+    <string name="empty_favorites">No favorites yet.</string>
+    <string name="empty_browse">Movies couldn’t be loaded.\nCheck your connection and try again.</string>
+    <string name="empty_filter_not_applied">No filter applied\nApply a filter to see results.</string>
+    <string name="empty_filter_no_results">No matches found.\nTry broadening your filter.</string>
+    <string name="back_to_top">Back to top</string>
+    <string name="movie_poster">Movie poster</string>
+    <string name="trailer">Trailer</string>
+    <string name="where_to_watch">Watch</string>
+    <string name="error_missing_movie_id">Missing movie id</string>
+    <string name="error_trailer_unavailable">Trailer not available</string>
+    <string name="error_network">Network error</string>
+    <string name="error_open_watch_page">Couldn\'t open watch page</string>
+    <string name="error_open_movie_page">Couldn\'t open movie page</string>
+    <string name="filter">Movie Filter</string>
+    <string name="favorite">favorite heart</string>
+    <string name="share">Share</string>
+    <string name="open_filter">open filter</string>
+</resources>

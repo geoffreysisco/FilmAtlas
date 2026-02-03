@@ -1,0 +1,39 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Base.Theme.FilmAtlas"
+        parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorControlHighlight">@color/md_theme_secondary</item>
+        <item name="colorPrimary">@color/md_theme_primary</item>
+        <item name="colorOnPrimary">@color/md_theme_secondary</item>
+        <item name="colorSecondaryContainer">@color/md_theme_primary</item>
+        <item name="colorOnSecondaryContainer">@color/md_theme_secondary</item>
+        <item name="colorControlActivated">@color/md_theme_primary</item>
+    </style>
+
+    <style name="Theme.FilmAtlas"
+        parent="Base.Theme.FilmAtlas" />
+
+    <style name="Widget.FilmAtlas.TabLayout"
+        parent="Widget.Material3.TabLayout">
+        <item name="tabIndicatorFullWidth">false</item>
+        <item name="tabIndicatorColor">@color/md_theme_primary</item>
+        <item name="tabSelectedTextColor">@color/md_theme_primary</item>
+        <item name="tabTextColor">?attr/colorOnSurfaceVariant</item>
+        <item name="tabRippleColor">@color/md_theme_secondary</item>
+        <item name="tabPaddingStart">32dp</item>
+        <item name="tabPaddingEnd">32dp</item>
+    </style>
+
+    <style name="CircleFab">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+
+    <style name="ThemeOverlay.FilmAtlas.GenreDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+    <!-- This is the one that usually controls the multi-choice checkmark -->
+    <item name="colorControlActivated">?attr/colorPrimary</item>
+
+    <!-- These help on some devices/versions -->
+    <item name="colorAccent">?attr/colorPrimary</item>
+</style>
+
+</resources>

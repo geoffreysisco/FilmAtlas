@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.example.filmatlas.view.SwipeDismissLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/swipe_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:paddingVertical="16dp">
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/dialog_card"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
+        android:clipToOutline="true"
+        app:cardBackgroundColor="?attr/colorSurfaceVariant"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="8dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="0.58"
+        app:strokeWidth="0dp">
+
+        <!-- Poster stack + details -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- Poster stack: blurred bg + scrim + foreground poster + close button overlay -->
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="360dp">
+
+                <ImageView
+                    android:id="@+id/dialog_poster_bg"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@null"
+                    android:scaleType="centerCrop"
+                    tools:ignore="InconsistentLayout" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="#14000000" />
+
+                <ImageView
+                    android:id="@+id/dialog_poster"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@string/movie_poster"
+                    android:scaleType="fitCenter" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_close"
+                    style="?attr/materialIconButtonStyle"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="top|end"
+                    android:contentDescription="@string/close"
+                    app:elevation="4dp"
+                    app:icon="@drawable/ic_close_24"
+                    app:iconSize="24dp" />
+
+            </FrameLayout>
+
+            <!-- Details: title + actions + overview -->
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:id="@+id/details_root"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="16dp"
+                android:paddingTop="16dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="12dp">
+
+                <!-- Title -->
+                <TextView
+                    android:id="@+id/dialog_title"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent" />
+
+                <!-- Actions (ONE LINE) -->
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:id="@+id/action_row"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/dialog_title">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_rating"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingStart="14dp"
+                        android:paddingEnd="16dp"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="13sp"
+                        app:backgroundTint="@android:color/transparent"
+                        app:cornerRadius="18dp"
+                        app:elevation="0dp"
+                        app:icon="@android:drawable/btn_star_big_on"
+                        app:iconPadding="8dp"
+                        app:iconSize="18dp"
+                        app:iconTint="#FFC107"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="parent"
+                        app:rippleColor="?attr/colorControlHighlight"
+                        app:strokeWidth="0dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_run_trailer"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginStart="10dp"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingStart="14dp"
+                        android:paddingEnd="16dp"
+                        android:text="@string/trailer"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="13sp"
+                        app:backgroundTint="@android:color/transparent"
+                        app:cornerRadius="18dp"
+                        app:elevation="0dp"
+                        app:icon="@android:drawable/ic_media_play"
+                        app:iconPadding="8dp"
+                        app:iconSize="18dp"
+                        app:iconTint="?attr/colorOnSurface"
+                        app:layout_constraintStart_toEndOf="@id/btn_rating"
+                        app:layout_constraintTop_toTopOf="@id/btn_rating"
+                        app:rippleColor="?attr/colorControlHighlight"
+                        app:strokeWidth="0dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_where_to_watch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginStart="10dp"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingStart="14dp"
+                        android:paddingEnd="16dp"
+                        android:text="@string/where_to_watch"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="13sp"
+                        app:backgroundTint="@android:color/transparent"
+                        app:cornerRadius="18dp"
+                        app:elevation="0dp"
+                        app:icon="@drawable/ic_tv_watch"
+                        app:iconPadding="8dp"
+                        app:iconSize="18dp"
+                        app:iconTint="?attr/colorOnSurface"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toEndOf="@id/btn_run_trailer"
+                        app:layout_constraintTop_toTopOf="@id/btn_rating"
+                        app:rippleColor="?attr/colorControlHighlight"
+                        app:strokeWidth="0dp" />
+
+                </androidx.constraintlayout.widget.ConstraintLayout>
+
+                <!-- Description container: HARD-anchored below action_row (prevents "under buttons") -->
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:id="@+id/description_container"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/action_row">
+
+                    <androidx.core.widget.NestedScrollView
+                        android:id="@+id/content_scroll"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:clipToPadding="false"
+                        android:fadeScrollbars="false"
+                        android:fillViewport="false"
+                        android:overScrollMode="ifContentScrolls"
+                        android:scrollbars="vertical"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintHeight_max="260dp"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="parent">
+
+                        <TextView
+                            android:id="@+id/dialog_overview"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:lineSpacingExtra="2dp"
+                            android:paddingBottom="14dp"
+                            android:textColor="?attr/colorOnSurfaceVariant"
+                            android:textSize="14sp" />
+
+                    </androidx.core.widget.NestedScrollView>
+
+
+                </androidx.constraintlayout.widget.ConstraintLayout>
+
+            </androidx.constraintlayout.widget.ConstraintLayout>
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+</com.example.filmatlas.view.SwipeDismissLayout>

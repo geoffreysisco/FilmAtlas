@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+
+    <!-- Optical correction:
+         - scale up a bit so it fills the same "visual height" as the play icon
+         - shift up slightly to counter built-in whitespace
+    -->
+    <group
+        android:pivotX="480"
+        android:pivotY="480"
+        android:scaleX="1.08"
+        android:scaleY="1.08"
+        android:translateY="-32">
+
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="m780,900 l-60,-60 120,-120 -120,-120 60,-60 180,180L780,900ZM320,840v-80L160,760q-33,0 -56.5,-23.5T80,680v-480q0,-33 23.5,-56.5T160,120h640q33,0 56.5,23.5T880,200v280h-80v-280L160,200v480h520v80h-80v80L320,840ZM160,680v-480,480Z" />
+    </group>
+</vector>

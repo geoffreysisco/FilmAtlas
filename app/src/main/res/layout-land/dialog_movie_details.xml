@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.example.filmatlas.view.SwipeDismissLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/swipe_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/dialog_card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        android:clipToOutline="true"
+        app:cardBackgroundColor="?attr/colorSurfaceVariant"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="8dp"
+        tools:targetApi="31">
+
+        <!-- Two-column layout: poster (left) + details panel (right) -->
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxHeight="360dp"
+            android:minHeight="290dp"
+            android:padding="14dp">
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/poster_container"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_marginEnd="16dp"
+                android:clipToOutline="true"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintDimensionRatio="W,2:3"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:strokeWidth="0dp"
+                tools:targetApi="31">
+
+                <ImageView
+                    android:id="@+id/dialog_poster"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@string/movie_poster"
+                    android:scaleType="centerCrop" />
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:paddingStart="12dp"
+                app:layout_constraintBottom_toBottomOf="@id/poster_container"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toEndOf="@id/poster_container"
+                app:layout_constraintTop_toTopOf="@id/poster_container">
+
+                <!-- Backdrop stack: image (low alpha) + scrim for legibility -->
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:clipToOutline="true"
+                    app:cardCornerRadius="14dp"
+                    app:cardElevation="0dp"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:strokeWidth="0dp"
+                    tools:targetApi="31">
+
+                    <FrameLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent">
+
+                        <ImageView
+                            android:id="@+id/dialog_backdrop"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:alpha="0.16"
+                            android:contentDescription="@null"
+                            android:scaleType="centerCrop"
+                            tools:ignore="InconsistentLayout" />
+
+                        <View
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:background="#66000000" />
+
+                    </FrameLayout>
+
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- Reserve space so title never collides with the close button -->
+                <androidx.constraintlayout.widget.Guideline
+                    android:id="@+id/close_space"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    app:layout_constraintGuide_end="44dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_close"
+                    style="?attr/materialIconButtonStyle"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="top|end"
+                    android:contentDescription="@string/close"
+                    app:backgroundTint="@android:color/transparent"
+                    app:icon="@drawable/ic_close_24"
+                    app:iconSize="24dp"
+                    app:iconTint="@android:color/white"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent" />
+
+                <TextView
+                    android:id="@+id/dialog_title"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:layout_marginTop="10dp"
+                    android:layout_marginEnd="8dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    app:layout_constraintEnd_toStartOf="@id/close_space"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent" />
+
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:id="@+id/action_row"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="6dp"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/dialog_title">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_rating"
+                        android:layout_width="wrap_content"
+                        android:layout_height="34dp"
+                        android:layout_marginStart="10dp"
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="10dp"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="13sp"
+                        app:backgroundTint="@android:color/transparent"
+                        app:cornerRadius="18dp"
+                        app:icon="@android:drawable/btn_star_big_on"
+                        app:iconPadding="8dp"
+                        app:iconSize="18dp"
+                        app:iconTint="#FFC107"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="parent"
+                        app:rippleColor="?attr/colorControlHighlight"
+                        tools:targetApi="26" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_run_trailer"
+                        android:layout_width="wrap_content"
+                        android:layout_height="34dp"
+                        android:layout_marginStart="14dp"
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp"
+                        android:text="@string/trailer"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="13sp"
+                        app:backgroundTint="@android:color/transparent"
+                        app:cornerRadius="18dp"
+                        app:icon="@android:drawable/ic_media_play"
+                        app:iconPadding="8dp"
+                        app:iconSize="18dp"
+                        app:iconTint="?attr/colorOnSurface"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        app:layout_constraintStart_toEndOf="@id/btn_rating"
+                        app:layout_constraintTop_toTopOf="parent"
+                        app:rippleColor="?attr/colorControlHighlight"/>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_where_to_watch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="34dp"
+                        android:layout_marginStart="10dp"
+                        android:minHeight="0dp"
+                        android:minWidth="0dp"
+                        android:paddingStart="14dp"
+                        android:paddingEnd="14dp"
+                        android:text="@string/where_to_watch"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="13sp"
+                        app:backgroundTint="@android:color/transparent"
+                        app:cornerRadius="18dp"
+                        app:icon="@drawable/ic_tv_watch"
+                        app:iconPadding="8dp"
+                        app:iconSize="18dp"
+                        app:iconTint="?attr/colorOnSurface"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        app:layout_constraintStart_toEndOf="@id/btn_run_trailer"
+                        app:layout_constraintTop_toTopOf="parent"
+                        app:rippleColor="?attr/colorControlHighlight"/>
+
+                </androidx.constraintlayout.widget.ConstraintLayout>
+
+                <androidx.core.widget.NestedScrollView
+                    android:id="@+id/content_scroll"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:fadeScrollbars="false"
+                    android:fillViewport="true"
+                    android:layout_marginTop="4dp"
+                    android:maxHeight="160dp"
+                    android:scrollbars="vertical"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/action_row"
+                    app:layout_constraintBottom_toBottomOf="parent">
+
+                    <TextView
+                        android:id="@+id/dialog_overview"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:lineSpacingExtra="2dp"
+                        android:padding="8dp"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="14sp" />
+
+                </androidx.core.widget.NestedScrollView>
+
+            </androidx.constraintlayout.widget.ConstraintLayout>
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+</com.example.filmatlas.view.SwipeDismissLayout>

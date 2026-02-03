@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <data>
+
+        <!-- Bound movie for this row -->
+        <variable
+            name="movie"
+            type="com.example.filmatlas.model.Movie" />
+
+    </data>
+
+    <!-- Movie list item -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/movie_card_view"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="8dp"
+        app:cardBackgroundColor="?attr/colorSurfaceVariant"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="4dp">
+
+        <!-- Poster, title, and rating -->
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="8dp">
+
+            <ImageView
+                android:id="@+id/movie_image_view"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:contentDescription="@null"
+                android:scaleType="fitCenter"
+                app:layout_constraintDimensionRatio="2:3"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:posterPath="@{movie.posterPath}" />
+
+            <TextView
+                android:id="@+id/movie_title_text_view"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:paddingTop="8dp"
+                android:text='@{movie.releaseYear != null ? movie.title + " (" + movie.releaseYear + ")" : movie.title}'
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="15sp"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/movie_image_view" />
+
+            <!-- Rating -->
+            <LinearLayout
+                android:id="@+id/rating_row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingTop="4dp"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/movie_title_text_view">
+
+                <ImageView
+                    android:layout_width="14dp"
+                    android:layout_height="14dp"
+                    android:layout_marginEnd="4dp"
+                    android:contentDescription="@null"
+                    android:src="@android:drawable/btn_star_big_on"
+                    app:tint="#FFC107" />
+
+                <TextView
+                    android:id="@+id/movie_rating_text_view"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text='@{String.format("%.2f", movie.voteAverage)}'
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="12sp" />
+
+                <!-- Favorite toggle -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_favorite"
+                    style="@style/Widget.Material3.Button.IconButton"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_margin="6dp"
+                    android:contentDescription="@string/favorite"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:backgroundTint="@android:color/transparent"
+                    app:icon="@drawable/sel_favorite_icon"
+                    app:iconTint="?attr/colorOnSurface"
+                    app:iconSize="20dp" />
+
+                <!-- Share -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_share"
+                    style="@style/Widget.Material3.Button.IconButton"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_margin="6dp"
+                    android:contentDescription="@string/share"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:backgroundTint="@android:color/transparent"
+                    app:icon="@drawable/ic_share_24"
+                    app:iconTint="?attr/colorOnSurface"
+                    app:iconSize="20dp" />
+
+            </LinearLayout>
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+</layout>
