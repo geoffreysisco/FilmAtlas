@@ -167,7 +167,6 @@ public class MainActivity extends AppCompatActivity
         setupSystemInsets();
         setupRecycler();
         setupFabToTop();
-        setupSwipeRefresh();
 
         setupSearchPill();
         setupSearchSuggestions();
@@ -180,8 +179,11 @@ public class MainActivity extends AppCompatActivity
         installSwipeObserversOnRootAndRecycler();
 
         binding.btnExitSearch.setOnClickListener(v -> exitSearchBackToLastTab());
-        binding.btnOpenFilter.setOnClickListener(v -> openMovieFilterBottomSheet(true));
 
+        binding.fabRefreshDiscover.setOnClickListener(v -> onDiscoverRefreshClicked());
+        binding.fabRefreshDiscover.setVisibility(View.GONE);
+
+        binding.btnOpenFilter.setOnClickListener(v -> openMovieFilterBottomSheet(true));
         binding.fabFilterApplied.setOnClickListener(v -> openMovieFilterBottomSheet(false));
         binding.fabFilterApplied.setVisibility(View.GONE);
 
@@ -350,32 +352,6 @@ public class MainActivity extends AppCompatActivity
             }
 
             binding.recyclerView.post(() -> binding.recyclerView.smoothScrollToPosition(0));
-        });
-    }
-
-    private void setupSwipeRefresh() {
-        binding.swipeRefreshLayout.setColorSchemeResources(R.color.black);
-        binding.swipeRefreshLayout.setOnRefreshListener(() -> {
-
-            if (isInSearchMode()) {
-                refreshSearchAndHideSuggestions();
-                binding.swipeRefreshLayout.setRefreshing(false);
-                return;
-            }
-
-            if (uiMode == UiMode.FAVORITES) {
-                binding.swipeRefreshLayout.setRefreshing(false);
-                return;
-            }
-
-            if (uiMode == UiMode.FILTER) {
-                openMovieFilterBottomSheet(!viewModel.isMovieFilterApplied());
-                binding.swipeRefreshLayout.setRefreshing(false);
-                return;
-            }
-
-            applyBrowseTabSelection(selectedTabIndex, true);
-            binding.swipeRefreshLayout.setRefreshing(false);
         });
     }
 
@@ -873,7 +849,6 @@ public class MainActivity extends AppCompatActivity
         });
 
         viewModel.getLoading().observe(this, loading -> {
-            binding.swipeRefreshLayout.setRefreshing(Boolean.TRUE.equals(loading));
             updateEmptyState();
         });
 
@@ -932,6 +907,7 @@ public class MainActivity extends AppCompatActivity
 
         applyMainTabTitles();
         updateFilterFabVisibility();
+        updateDiscoverRefreshFabVisibility();
     }
 
     private void enterFavoritesMode() {
@@ -959,6 +935,7 @@ public class MainActivity extends AppCompatActivity
         });
 
         updateFilterFabVisibility();
+        updateDiscoverRefreshFabVisibility();
     }
 
     private void enterFilterMode(boolean showBottomSheet, boolean callViewModel) {
@@ -987,6 +964,7 @@ public class MainActivity extends AppCompatActivity
 
         applyMainTabTitles();
         updateFilterFabVisibility();
+        updateDiscoverRefreshFabVisibility();
     }
 
     private void enterFilterMode() {
@@ -1183,6 +1161,18 @@ public class MainActivity extends AppCompatActivity
         return movie;
     }
 
+    // --- Discover Tab ---
+
+    private void onDiscoverRefreshClicked() {
+        if (uiMode != UiMode.BROWSE) return;
+        if (isInSearchMode()) return;
+        if (selectedTabIndex != TAB_DISCOVER) return;
+
+        viewModel.selectDiscover(true);
+
+        hideSuggestions();
+    }
+
     // --- Filter ---
 
     private void refreshFilterOrShowEmptyState() {
@@ -1331,6 +1321,17 @@ public class MainActivity extends AppCompatActivity
                         && viewModel.isMovieFilterApplied();
 
         binding.fabFilterApplied.setVisibility(show ? View.VISIBLE : View.GONE);
+    }
+
+    private void updateDiscoverRefreshFabVisibility() {
+        if (binding == null || binding.fabRefreshDiscover == null) return;
+
+        boolean show =
+                (uiMode == UiMode.BROWSE)
+                        && !isInSearchMode()
+                        && (selectedTabIndex == TAB_DISCOVER);
+
+        binding.fabRefreshDiscover.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
     // --- Empty state ---
