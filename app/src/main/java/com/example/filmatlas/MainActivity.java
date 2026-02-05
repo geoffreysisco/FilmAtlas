@@ -14,6 +14,7 @@ import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
+import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
@@ -23,6 +24,7 @@ import android.widget.LinearLayout;
 import androidx.activity.EdgeToEdge;
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -35,6 +37,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.filmatlas.databinding.ActivityMainBinding;
 import com.example.filmatlas.model.Movie;
+import com.example.filmatlas.model.MovieActionPayload;
 import com.example.filmatlas.model.MovieFilterOptions;
 import com.example.filmatlas.view.MovieAdapter;
 import com.example.filmatlas.view.MovieDetailsDialogFragment;
@@ -56,35 +59,31 @@ import java.util.List;
  * MainActivityViewModel, handling user interaction, visual state restoration,
  * and mode transitions without owning data or business logic.
  */
-
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity
+        implements MovieDetailsDialogFragment.OnFavoriteClickListener,
+        MovieDetailsDialogFragment.OnShareClickListener {
 
     // =====================
     // Constants
     // =====================
 
-    // Saved state keys
     private static final String KEY_UI_MODE = "ui_mode";
     private static final String KEY_RECYCLER_LAYOUT_STATE = "recycler_layout_state";
     private static final String KEY_SELECTED_BROWSE_TAB = "selected_browse_tab";
     private static final String KEY_SELECTED_MODE_TAB = "selected_mode_tab";
 
-    // Main tabs: indices
     private static final int TAB_DISCOVER = 0;
     private static final int TAB_POPULAR = 1;
     private static final int TAB_NOW_PLAYING = 2;
 
-    // Mode tabs: indices
     private static final int MODE_TAB_FAVORITES = 0;
     private static final int MODE_TAB_FILTER = 1;
 
-    // UI constants
     private static final int TAB_INDICATOR_HEIGHT_DP = 4;
 
-    // Swipe constants
-    private static final int SWIPE_MIN_DISTANCE_DP = 72;   // horizontal distance
-    private static final int SWIPE_EDGE_GUARD_DP = 32;     // ignore swipes near edges
-    private static final int SWIPE_MIN_VELOCITY_DP = 650;  // fling velocity
+    private static final int SWIPE_MIN_DISTANCE_DP = 72;
+    private static final int SWIPE_EDGE_GUARD_DP = 32;
+    private static final int SWIPE_MIN_VELOCITY_DP = 650;
 
     private enum UiMode {
         BROWSE,
@@ -96,14 +95,12 @@ public class MainActivity extends AppCompatActivity {
     // Fields
     // =====================
 
-    // Core
     private ActivityMainBinding binding;
     private MainActivityViewModel viewModel;
     private MovieAdapter movieAdapter;
     private GridLayoutManager gridLayoutManager;
     private Parcelable pendingRvState;
 
-    // Search
     private final Handler searchHandler = new Handler(Looper.getMainLooper());
     private boolean suppressSuggestionFetch = false;
     private boolean skipSuggestionFetchBecauseRotation = false;
@@ -113,27 +110,23 @@ public class MainActivity extends AppCompatActivity {
     private RecyclerView suggestionsList;
     private SearchSuggestionsAdapter suggestionsAdapter;
 
-    // Tabs + mode
     private TabLayout mainTabs;
     private TabLayout modeTabs;
     private UiMode uiMode = UiMode.BROWSE;
     private int selectedTabIndex = TAB_DISCOVER;
     private int lastBrowseTabIndex = TAB_DISCOVER;
-    private int lastModeTabIndex = -1; // -1 = came from browse tabs
+    private int lastModeTabIndex = -1;
     private boolean restoringTabs = false;
     private CharSequence[] originalMainTabTitles;
     private CharSequence[] originalModeTabTitles;
 
-    // Favorites
     private List<Movie> latestFavorites = java.util.Collections.emptyList();
 
-    // Tab visuals
     private ColorStateList mainTabsTextColors;
     private int mainTabsNormalTextColor;
     private ColorStateList modeTabsTextColors;
     private int modeTabsNormalTextColor;
 
-    // Swipe
     private GestureDetector swipeDetector;
 
     // =====================
@@ -158,7 +151,6 @@ public class MainActivity extends AppCompatActivity {
             getSupportActionBar().setDisplayShowTitleEnabled(false);
         }
 
-        // Restore saved state (visual only)
         skipSuggestionFetchBecauseRotation = (savedInstanceState != null);
 
         String restoredUiModeName = UiMode.BROWSE.name();
@@ -172,44 +164,36 @@ public class MainActivity extends AppCompatActivity {
             restoredModeTabPos = savedInstanceState.getInt(KEY_SELECTED_MODE_TAB, -1);
         }
 
-        // Base UI setup
         setupSystemInsets();
         setupRecycler();
         setupFabToTop();
         setupSwipeRefresh();
 
-        // Search setup
         setupSearchPill();
         setupSearchSuggestions();
 
-        // Tabs, observers, and back navigation
         setupTabSystem();
         setupObservers();
         setupBackPress();
 
-        // Swipe navigation
         setupSwipeDetector();
         installSwipeObserversOnRootAndRecycler();
 
-        // Click listeners
         binding.btnExitSearch.setOnClickListener(v -> exitSearchBackToLastTab());
         binding.btnOpenFilter.setOnClickListener(v -> openMovieFilterBottomSheet(true));
 
         binding.fabFilterApplied.setOnClickListener(v -> openMovieFilterBottomSheet(false));
         binding.fabFilterApplied.setVisibility(View.GONE);
 
-        // Initial UI state
         if (savedInstanceState == null) {
             enterBrowseModeAndSelectTab(TAB_DISCOVER, false);
         } else {
             restoreInitialUi(restoredUiModeName, restoredModeTabPos, selectedTabIndex);
         }
 
-        // Final UI adjustments
         updateFilterFabVisibility();
         applyMainTabTitles();
 
-        // Never show stale suggestions on rotate
         hideSuggestions();
     }
 
@@ -289,9 +273,6 @@ public class MainActivity extends AppCompatActivity {
         restoringTabs = false;
 
         if (!inSearch) {
-
-            // On rotation, do NOT reload the tab contents.
-            // Let LiveData re-emit and restore scroll via pendingRvState.
             if (pendingRvState == null) {
                 applyBrowseTabSelection(restoredBrowseTabPosition, false);
             }
@@ -435,7 +416,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
-            public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+            public boolean onFling(@Nullable MotionEvent e1, @Nullable MotionEvent e2, float velocityX, float velocityY) {
                 if (e1 == null || e2 == null) return false;
 
                 if (isInSearchMode()) return false;
@@ -457,7 +438,6 @@ public class MainActivity extends AppCompatActivity {
                 int w = surface.getWidth();
                 float startX = e1.getX();
                 if (startX <= edgeGuardPx || startX >= (w - edgeGuardPx)) {
-                    // Ignored edge swipe
                     return false;
                 }
 
@@ -843,8 +823,6 @@ public class MainActivity extends AppCompatActivity {
                 hideFilterEmptyState();
 
                 movieAdapter.submitList(movies, () -> {
-                    // IMPORTANT:
-                    // Restore AFTER adapter commit so LayoutManager has children
                     restoreRecyclerStateIfReady(movies);
                     updateEmptyState();
                 });
@@ -857,16 +835,12 @@ public class MainActivity extends AppCompatActivity {
             if (uiMode == UiMode.BROWSE || uiMode == UiMode.FILTER) {
 
                 movieAdapter.submitList(movies, () -> {
-                    // IMPORTANT:
-                    // Restore AFTER adapter commit so LayoutManager has children
                     restoreRecyclerStateIfReady(movies);
 
                     if (uiMode == UiMode.FILTER) {
                         if (movies != null && !movies.isEmpty()) {
                             hideFilterEmptyState();
                         } else {
-                            // Case 1: no filter applied -> "no filter applied" message
-                            // Case 3: filter applied but 0 results -> "no matches" message
                             showFilterEmptyState(viewModel.isMovieFilterApplied());
                         }
 
@@ -884,10 +858,11 @@ public class MainActivity extends AppCompatActivity {
 
             latestFavorites = favs;
 
+            if (isInSearchMode()) return;
+
             if (uiMode == UiMode.FAVORITES) {
                 hideFilterEmptyState();
                 binding.recyclerView.setVisibility(View.VISIBLE);
-
                 movieAdapter.submitList(favs, this::updateEmptyState);
             }
         });
@@ -930,9 +905,6 @@ public class MainActivity extends AppCompatActivity {
     private void enterBrowseModeAndSelectTab(int tabIndex, boolean reselected) {
         enterBrowseMode();
 
-        // IMPORTANT:
-        // Avoid selecting the same tab again, because TabLayout will treat it as a RESELECT
-        // and fire onTabReselected(), which can cause a duplicate reload.
         if (mainTabs != null) {
             int current = mainTabs.getSelectedTabPosition();
             if (current != tabIndex) {
@@ -1103,15 +1075,32 @@ public class MainActivity extends AppCompatActivity {
     // =====================
 
     private void openMovieDetails(@NonNull Movie movie) {
-        MovieDetailsDialogFragment.newInstance(
-                movie.getId(),
-                movie.getTitle(),
-                movie.getVoteAverage(),
-                movie.getOverview(),
+
+        int id = (movie.getId() == null) ? -1 : movie.getId();
+
+        MovieActionPayload payload = new MovieActionPayload(
+                id,
+                (movie.getTitle() == null) ? "" : movie.getTitle(),
+                (movie.getVoteAverage() == null) ? 0.0 : movie.getVoteAverage(),
+                (movie.getOverview() == null) ? "" : movie.getOverview(),
                 movie.getPosterPath(),
                 movie.getBackdropPath(),
-                movie.getReleaseYear()
-        ).show(getSupportFragmentManager(), "movie_details");
+                movie.getReleaseDate()
+        );
+
+        MovieDetailsDialogFragment
+                .newInstance(payload)
+                .show(getSupportFragmentManager(), "movie_details");
+    }
+
+    @Override
+    public void onFavoriteClick(@NonNull MovieActionPayload payload) {
+        viewModel.toggleFavorite(buildMinimalFavoriteMovieFromPayload(payload));
+    }
+
+    @Override
+    public void onShareClick(@NonNull MovieActionPayload payload) {
+        shareText(buildShareTextFromPayload(payload));
     }
 
     // =====================
@@ -1119,6 +1108,38 @@ public class MainActivity extends AppCompatActivity {
     // =====================
 
     // --- Share ---
+
+    private void shareText(@NonNull String text) {
+        Intent intent = new Intent(Intent.ACTION_SEND);
+        intent.setType("text/plain");
+        intent.putExtra(Intent.EXTRA_TEXT, text);
+        startActivity(Intent.createChooser(intent, "Share a Movie"));
+    }
+
+    @NonNull
+    private String buildShareTextFromPayload(@NonNull MovieActionPayload payload) {
+
+        String title = payload.getTitle().trim();
+
+        String year = payload.getReleaseYear();
+        year = (year == null) ? "" : year.trim();
+
+        String label;
+        if (!title.isEmpty() && !year.isEmpty()) {
+            label = title + " (" + year + ")";
+        } else if (!title.isEmpty()) {
+            label = title;
+        } else {
+            label = "Movie";
+        }
+
+        int id = payload.getMovieId();
+        String url = (id <= 0)
+                ? "https://www.themoviedb.org"
+                : ("https://www.themoviedb.org/movie/" + id);
+
+        return label + "\n" + url + "\nShared from FilmAtlas";
+    }
 
     private void shareMovie(@NonNull Movie movie) {
 
@@ -1144,13 +1165,22 @@ public class MainActivity extends AppCompatActivity {
                 ? "https://www.themoviedb.org"
                 : ("https://www.themoviedb.org/movie/" + id);
 
-        String text = label + "\n" + url + "\nShared from FilmAtlas";
+        shareText(label + "\n" + url + "\nShared from FilmAtlas");
+    }
 
-        Intent intent = new Intent(Intent.ACTION_SEND);
-        intent.setType("text/plain");
-        intent.putExtra(Intent.EXTRA_TEXT, text);
+    // --- Favorites ---
 
-        startActivity(Intent.createChooser(intent, "Share a Movie"));
+    @NonNull
+    private Movie buildMinimalFavoriteMovieFromPayload(@NonNull MovieActionPayload payload) {
+        Movie movie = new Movie();
+        movie.setId(payload.getMovieId());
+        movie.setTitle(payload.getTitle());
+        movie.setPosterPath(payload.getPosterPath());
+        movie.setBackdropPath(payload.getBackdropPath());
+        movie.setOverview(payload.getOverview());
+        movie.setVoteAverage(payload.getRating());
+        movie.setReleaseDate(payload.getReleaseDate());
+        return movie;
     }
 
     // --- Filter ---
@@ -1235,7 +1265,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void applyTabPipes(@NonNull TabLayout tabs) {
-        // TabLayout's first child is the sliding tab indicator (a LinearLayout)
         View child = tabs.getChildAt(0);
         if (!(child instanceof LinearLayout)) return;
 
@@ -1245,7 +1274,7 @@ public class MainActivity extends AppCompatActivity {
         strip.setDividerDrawable(
                 androidx.core.content.ContextCompat.getDrawable(this, R.drawable.tab_divider_vertical)
         );
-        strip.setDividerPadding(0); // keep the pipe tight
+        strip.setDividerPadding(0);
     }
 
     // --- Recycler state ---
@@ -1362,7 +1391,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showFilterEmptyState() {
-        // Default behavior: "no filter applied"
         showFilterEmptyState(false);
     }
 
@@ -1383,7 +1411,6 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (binding.btnOpenFilter != null) {
-            binding.btnOpenFilter.setVisibility(View.VISIBLE);
             binding.btnOpenFilter.setVisibility(filterApplied ? View.GONE : View.VISIBLE);
         }
     }

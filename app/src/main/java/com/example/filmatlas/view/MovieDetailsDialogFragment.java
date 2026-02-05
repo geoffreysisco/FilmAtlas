@@ -28,16 +28,19 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.widget.NestedScrollView;
 import androidx.fragment.app.DialogFragment;
+import androidx.lifecycle.ViewModelProvider;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
 import com.example.filmatlas.BuildConfig;
 import com.example.filmatlas.R;
+import com.example.filmatlas.model.MovieActionPayload;
 import com.example.filmatlas.model.Trailer;
 import com.example.filmatlas.network.TrailerResponse;
 import com.example.filmatlas.serviceapi.MovieApiService;
 import com.example.filmatlas.serviceapi.RetrofitInstance;
+import com.example.filmatlas.viewmodel.MainActivityViewModel;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.color.MaterialColors;
 
@@ -52,16 +55,9 @@ import retrofit2.Response;
  * DialogFragment for movie details with artwork, overview, and TMDB/trailer actions.
  * Centers responsively and supports swipe-up-to-dismiss in portrait.
  */
-
 public class MovieDetailsDialogFragment extends DialogFragment {
 
-    private static final String ARG_TITLE = "arg_title";
-    private static final String ARG_RATING = "arg_rating";
-    private static final String ARG_OVERVIEW = "arg_overview";
-    private static final String ARG_POSTER_PATH = "arg_poster_path";
-    private static final String ARG_MOVIE_ID = "arg_movie_id";
-    private static final String ARG_RELEASE_YEAR = "arg_release_year";
-    private static final String ARG_BACKDROP_PATH = "arg_backdrop_path";
+    private static final String ARG_PAYLOAD = "arg_payload";
 
     private static final float WIDTH_RATIO_LANDSCAPE = 0.92f;
     private static final float WIDTH_RATIO_PORTRAIT = 0.94f;
@@ -71,28 +67,50 @@ public class MovieDetailsDialogFragment extends DialogFragment {
     private static final int CLOSE_SAMPLE_SIZE_PX = 22;
     private static final int CLOSE_SAMPLE_INSET_PX = 14;
 
-    public static MovieDetailsDialogFragment newInstance(
-            int movieId,
-            @NonNull String title,
-            double rating,
-            @NonNull String overview,
-            @Nullable String posterPath,
-            @Nullable String backdropPath,
-            @Nullable String releaseYear
-    ) {
+    public interface OnFavoriteClickListener {
+        void onFavoriteClick(@NonNull MovieActionPayload payload);
+    }
+
+    public interface OnShareClickListener {
+        void onShareClick(@NonNull MovieActionPayload payload);
+    }
+
+    @Nullable
+    private OnFavoriteClickListener favoriteClickListener;
+
+    @Nullable
+    private OnShareClickListener shareClickListener;
+
+    public static MovieDetailsDialogFragment newInstance(@NonNull MovieActionPayload payload) {
         MovieDetailsDialogFragment frag = new MovieDetailsDialogFragment();
-
         Bundle args = new Bundle();
-        args.putInt(ARG_MOVIE_ID, movieId);
-        args.putString(ARG_TITLE, title);
-        args.putDouble(ARG_RATING, rating);
-        args.putString(ARG_OVERVIEW, overview);
-        args.putString(ARG_POSTER_PATH, posterPath);
-        args.putString(ARG_BACKDROP_PATH, backdropPath);
-        args.putString(ARG_RELEASE_YEAR, releaseYear);
-
+        args.putParcelable(ARG_PAYLOAD, payload);
         frag.setArguments(args);
         return frag;
+    }
+
+    @Override
+    public void onAttach(@NonNull Context context) {
+        super.onAttach(context);
+
+        if (getParentFragment() instanceof OnFavoriteClickListener) {
+            favoriteClickListener = (OnFavoriteClickListener) getParentFragment();
+        } else if (context instanceof OnFavoriteClickListener) {
+            favoriteClickListener = (OnFavoriteClickListener) context;
+        }
+
+        if (getParentFragment() instanceof OnShareClickListener) {
+            shareClickListener = (OnShareClickListener) getParentFragment();
+        } else if (context instanceof OnShareClickListener) {
+            shareClickListener = (OnShareClickListener) context;
+        }
+    }
+
+    @Override
+    public void onDetach() {
+        super.onDetach();
+        favoriteClickListener = null;
+        shareClickListener = null;
     }
 
     @NonNull
@@ -112,26 +130,43 @@ public class MovieDetailsDialogFragment extends DialogFragment {
         ImageView backdrop = view.findViewById(R.id.dialog_backdrop);
 
         MaterialButton closeBtn = view.findViewById(R.id.btn_close);
+        MaterialButton shareBtn = view.findViewById(R.id.btn_share);
+        MaterialButton favoriteBtn = view.findViewById(R.id.btn_favorite);
         MaterialButton ratingBtn = view.findViewById(R.id.btn_rating);
         MaterialButton trailerBtn = view.findViewById(R.id.btn_run_trailer);
         MaterialButton whereToWatchBtn = view.findViewById(R.id.btn_where_to_watch);
 
         swipeRoot.setup(dialogCard, overviewScroll, this::dismissAllowingStateLoss);
 
-        Args args = readArgs();
+        MovieActionPayload payload = readPayload();
 
-        titleTv.setText(formatTitleWithYear(args.title, args.releaseYear));
-        ratingBtn.setText(String.format(Locale.US, "%.2f", args.rating));
-
-        overviewTv.setText(args.overview);
+        titleTv.setText(formatTitleWithYear(payload.getTitle(), payload.getReleaseYear()));
+        ratingBtn.setText(String.format(Locale.US, "%.2f", payload.getRating()));
+        overviewTv.setText(payload.getOverview());
 
         closeBtn.setOnClickListener(v -> dismissAllowingStateLoss());
-        ratingBtn.setOnClickListener(v -> openTmdbMoviePage(args.movieId));
-        trailerBtn.setOnClickListener(v -> fetchAndOpenTrailer(args.movieId, trailerBtn));
-        whereToWatchBtn.setOnClickListener(v -> openTmdbWatchPage(args.movieId));
+        ratingBtn.setOnClickListener(v -> openTmdbMoviePage(payload.getMovieId()));
+        trailerBtn.setOnClickListener(v -> fetchAndOpenTrailer(payload.getMovieId(), trailerBtn));
+        whereToWatchBtn.setOnClickListener(v -> openTmdbWatchPage(payload.getMovieId()));
 
-        String posterUrl = buildImageUrl("w500", args.posterPath);
-        String backdropUrl = buildImageUrl("w780", args.backdropPath);
+        if (shareBtn != null) {
+            shareBtn.setOnClickListener(v -> {
+                if (shareClickListener != null) {
+                    shareClickListener.onShareClick(payload);
+                }
+            });
+        }
+
+        if (favoriteBtn != null) {
+            favoriteBtn.setOnClickListener(v -> {
+                if (favoriteClickListener != null) {
+                    favoriteClickListener.onFavoriteClick(payload);
+                }
+            });
+        }
+
+        String posterUrl = buildImageUrl("w500", payload.getPosterPath());
+        String backdropUrl = buildImageUrl("w780", payload.getBackdropPath());
 
         loadPosterImages(poster, posterBg, posterUrl);
         loadBackdropImage(backdrop, backdropUrl);
@@ -145,9 +180,28 @@ public class MovieDetailsDialogFragment extends DialogFragment {
             );
 
             int blended = ColorUtils.blendARGB(tint, Color.WHITE, 0.72f);
-            closeBtn.setIconTint(ColorStateList.valueOf(blended));
+            ColorStateList tintList = ColorStateList.valueOf(blended);
+
+            closeBtn.setIconTint(tintList);
+
+            if (shareBtn != null) shareBtn.setIconTint(tintList);
+            if (favoriteBtn != null) favoriteBtn.setIconTint(tintList);
         } else {
-            applyAdaptiveCloseTintFromBlurRegion(closeBtn, posterUrl);
+            applyAdaptiveActionTintFromBlurRegion(
+                    posterUrl,
+                    closeBtn,
+                    shareBtn,
+                    favoriteBtn
+            );
+        }
+
+        MainActivityViewModel viewModel =
+                new ViewModelProvider(requireActivity()).get(MainActivityViewModel.class);
+
+        if (favoriteBtn != null && payload.getMovieId() > 0) {
+            viewModel.isFavoriteLive(payload.getMovieId()).observe(this, isFav -> {
+                favoriteBtn.setSelected(Boolean.TRUE.equals(isFav));
+            });
         }
 
         return new AlertDialog.Builder(requireContext())
@@ -173,22 +227,6 @@ public class MovieDetailsDialogFragment extends DialogFragment {
         w.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
         w.setGravity(Gravity.CENTER);
         w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-    }
-
-    private Args readArgs() {
-        Bundle b = getArguments();
-
-        int movieId = b != null ? b.getInt(ARG_MOVIE_ID, -1) : -1;
-        String title = b != null ? safeString(b.getString(ARG_TITLE)) : "";
-        double rating = b != null ? b.getDouble(ARG_RATING, 0.0) : 0.0;
-        String overview = b != null ? safeString(b.getString(ARG_OVERVIEW)) : "";
-        String posterPath = b != null ? b.getString(ARG_POSTER_PATH) : null;
-        String backdropPath = b != null ? b.getString(ARG_BACKDROP_PATH) : null;
-
-        String releaseYear = b != null ? b.getString(ARG_RELEASE_YEAR) : null;
-        if (releaseYear != null) releaseYear = releaseYear.trim();
-
-        return new Args(movieId, title, rating, overview, posterPath, backdropPath, releaseYear);
     }
 
     private void loadPosterImages(
@@ -219,9 +257,11 @@ public class MovieDetailsDialogFragment extends DialogFragment {
                 .into(backdrop);
     }
 
-    private void applyAdaptiveCloseTintFromBlurRegion(
+    private void applyAdaptiveActionTintFromBlurRegion(
+            @Nullable String posterUrl,
             @NonNull MaterialButton closeBtn,
-            @Nullable String posterUrl
+            @Nullable MaterialButton shareBtn,
+            @Nullable MaterialButton favoriteBtn
     ) {
         if (posterUrl == null) return;
 
@@ -245,7 +285,12 @@ public class MovieDetailsDialogFragment extends DialogFragment {
                         double cb = ColorUtils.calculateContrast(black, sampleColor);
 
                         int tint = (cw >= cb) ? white : black;
-                        closeBtn.setIconTint(ColorStateList.valueOf(tint));
+                        ColorStateList tintList = ColorStateList.valueOf(tint);
+
+                        closeBtn.setIconTint(tintList);
+
+                        if (shareBtn != null) shareBtn.setIconTint(tintList);
+                        if (favoriteBtn != null) favoriteBtn.setIconTint(tintList);
                     }
 
                     @Override
@@ -265,7 +310,9 @@ public class MovieDetailsDialogFragment extends DialogFragment {
         int x1 = clamp(x0 + sizePx, 0, w);
         int y1 = clamp(y0 + sizePx, 0, h);
 
-        long sumR = 0, sumG = 0, sumB = 0;
+        long sumR = 0;
+        long sumG = 0;
+        long sumB = 0;
         long count = 0;
 
         for (int y = y0; y < y1; y += 2) {
@@ -447,42 +494,22 @@ public class MovieDetailsDialogFragment extends DialogFragment {
         return title + " (" + year + ")";
     }
 
-    @NonNull
-    private String safeString(@Nullable String s) {
-        return s == null ? "" : s;
-    }
-
     @Nullable
     private String buildImageUrl(@NonNull String size, @Nullable String path) {
         if (path == null || path.isEmpty()) return null;
         return "https://image.tmdb.org/t/p/" + size + path;
     }
 
-    private static class Args {
-        final int movieId;
-        final String title;
-        final double rating;
-        final String overview;
-        final String posterPath;
-        final String backdropPath;
-        final String releaseYear;
+    @NonNull
+    private MovieActionPayload readPayload() {
+        Bundle b = getArguments();
+        MovieActionPayload p = (b != null) ? b.getParcelable(ARG_PAYLOAD) : null;
 
-        Args(
-                int movieId,
-                @NonNull String title,
-                double rating,
-                @NonNull String overview,
-                @Nullable String posterPath,
-                @Nullable String backdropPath,
-                @Nullable String releaseYear
-        ) {
-            this.movieId = movieId;
-            this.title = title;
-            this.rating = rating;
-            this.overview = overview;
-            this.posterPath = posterPath;
-            this.backdropPath = backdropPath;
-            this.releaseYear = releaseYear;
+        if (p == null) {
+            // Safe fallback so we never crash
+            return new MovieActionPayload(-1, "", 0.0, "", null, null, null);
         }
+
+        return p;
     }
 }

@@ -115,6 +115,19 @@
             app:tabGravity="fill"
             app:tabIndicatorFullWidth="false" />
 
+        <com.google.android.material.divider.MaterialDivider
+            android:id="@+id/divider_tabs"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="4dp"
+            app:dividerColor="?attr/colorOutlineVariant"
+            app:layout_constraintTop_toBottomOf="@id/mode_tabs"
+            app:layout_constraintBottom_toTopOf="@id/main_tabs"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintWidth_percent="0.34" />
+
         <!-- Main tabs (Discover / Popular / New) -->
         <com.google.android.material.tabs.TabLayout
             android:id="@+id/main_tabs"
@@ -122,7 +135,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:background="?attr/colorSurface"
-            app:layout_constraintTop_toBottomOf="@id/mode_tabs"
+            app:layout_constraintTop_toBottomOf="@id/divider_tabs"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:tabMode="fixed"

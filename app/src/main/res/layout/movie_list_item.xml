@@ -92,7 +92,7 @@
                     android:clickable="true"
                     android:focusable="true"
                     android:backgroundTint="@android:color/transparent"
-                    app:icon="@drawable/sel_favorite_icon"
+                    app:icon="@drawable/ic_favorite_24"
                     app:iconTint="?attr/colorOnSurface"
                     app:iconSize="20dp" />
 
