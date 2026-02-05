@@ -852,7 +852,14 @@ public class MainActivity extends AppCompatActivity
             updateEmptyState();
         });
 
-        viewModel.isSearchMode().observe(this, inSearch -> applyMainTabTitles());
+        viewModel.isSearchMode().observe(this, inSearch -> {
+            applyMainTabTitles();
+
+            // Search is a top-level UI state: all contextual FABs must react immediately.
+            resetToTopFabVisibility();
+            updateFilterFabVisibility();
+            updateDiscoverRefreshFabVisibility();
+        });
 
         viewModel.getSuggestionsLiveData().observe(this, list -> {
             boolean has = list != null && !list.isEmpty();
@@ -899,6 +906,7 @@ public class MainActivity extends AppCompatActivity
     private void enterBrowseMode() {
         uiMode = UiMode.BROWSE;
 
+        resetToTopFabVisibility();
         setModeTabsVisualsEnabled(false);
         clearModeTabsSelection();
         setMainTabsVisualsEnabled(true);
@@ -914,6 +922,7 @@ public class MainActivity extends AppCompatActivity
         exitSearchUiAndMode();
         uiMode = UiMode.FAVORITES;
 
+        resetToTopFabVisibility();
         setMainTabsVisualsEnabled(false);
         clearMainTabsSelection();
         setModeTabsVisualsEnabled(true);
@@ -941,6 +950,7 @@ public class MainActivity extends AppCompatActivity
     private void enterFilterMode(boolean showBottomSheet, boolean callViewModel) {
         uiMode = UiMode.FILTER;
 
+        resetToTopFabVisibility();
         setMainTabsVisualsEnabled(false);
         clearMainTabsSelection();
         setModeTabsVisualsEnabled(true);
@@ -956,11 +966,15 @@ public class MainActivity extends AppCompatActivity
         }
 
         if (showBottomSheet) {
+
+            resetToTopFabVisibility();
+
             if (getSupportFragmentManager().findFragmentByTag("MovieFilterBottomSheet") == null) {
                 new MovieFilterBottomSheet()
                         .show(getSupportFragmentManager(), "MovieFilterBottomSheet");
             }
         }
+
 
         applyMainTabTitles();
         updateFilterFabVisibility();
@@ -1161,7 +1175,7 @@ public class MainActivity extends AppCompatActivity
         return movie;
     }
 
-    // --- Discover Tab ---
+    // --- Discover ---
 
     private void onDiscoverRefreshClicked() {
         if (uiMode != UiMode.BROWSE) return;
@@ -1186,6 +1200,9 @@ public class MainActivity extends AppCompatActivity
     }
 
     private void openMovieFilterBottomSheet(boolean resetToDefaults) {
+
+        resetToTopFabVisibility();
+
         if (resetToDefaults) {
             viewModel.clearMovieFilter();
         }
@@ -1323,6 +1340,11 @@ public class MainActivity extends AppCompatActivity
         binding.fabFilterApplied.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
+    private void resetToTopFabVisibility() {
+        if (binding == null || binding.fabToTop == null) return;
+        binding.fabToTop.hide();
+    }
+
     private void updateDiscoverRefreshFabVisibility() {
         if (binding == null || binding.fabRefreshDiscover == null) return;
 
@@ -1397,6 +1419,7 @@ public class MainActivity extends AppCompatActivity
 
     private void showFilterEmptyState(boolean filterApplied) {
         binding.recyclerView.setVisibility(View.GONE);
+        resetToTopFabVisibility();
 
         binding.emptyStateText.setVisibility(View.GONE);
         binding.btnExitSearch.setVisibility(View.GONE);
