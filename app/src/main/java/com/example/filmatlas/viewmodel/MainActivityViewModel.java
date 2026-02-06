@@ -139,6 +139,10 @@ public class MainActivityViewModel extends AndroidViewModel {
         filterEmptyStateEvent.setValue(true);
     }
 
+    public void requestShowFilterEmptyState(boolean show) {
+        filterEmptyStateEvent.setValue(show);
+    }
+
     // =====================
     // Constructor
     // =====================

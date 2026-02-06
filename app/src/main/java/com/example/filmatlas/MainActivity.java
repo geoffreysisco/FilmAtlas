@@ -183,7 +183,7 @@ public class MainActivity extends AppCompatActivity
         binding.fabRefreshDiscover.setOnClickListener(v -> onDiscoverRefreshClicked());
         binding.fabRefreshDiscover.setVisibility(View.GONE);
 
-        binding.btnOpenFilter.setOnClickListener(v -> openMovieFilterBottomSheet(true));
+        binding.btnOpenFilter.setOnClickListener(v -> openMovieFilterBottomSheet(false));
         binding.fabFilterApplied.setOnClickListener(v -> openMovieFilterBottomSheet(false));
         binding.fabFilterApplied.setVisibility(View.GONE);
 
@@ -873,10 +873,12 @@ public class MainActivity extends AppCompatActivity
         });
 
         viewModel.getFilterEmptyStateEvent().observe(this, show -> {
-            if (Boolean.TRUE.equals(show)) {
-                showFilterEmptyState();
-                updateFilterFabVisibility();
-            }
+            if (!Boolean.TRUE.equals(show)) return;
+
+            showFilterEmptyState(viewModel.isMovieFilterApplied());
+            updateFilterFabVisibility();
+
+            viewModel.requestShowFilterEmptyState(false);
         });
     }
 
@@ -906,6 +908,7 @@ public class MainActivity extends AppCompatActivity
     private void enterBrowseMode() {
         uiMode = UiMode.BROWSE;
 
+        clearFilterIfLeavingFilterMode();
         resetToTopFabVisibility();
         setModeTabsVisualsEnabled(false);
         clearModeTabsSelection();
@@ -920,6 +923,7 @@ public class MainActivity extends AppCompatActivity
 
     private void enterFavoritesMode() {
         exitSearchUiAndMode();
+        clearFilterIfLeavingFilterMode();
         uiMode = UiMode.FAVORITES;
 
         resetToTopFabVisibility();
@@ -960,7 +964,7 @@ public class MainActivity extends AppCompatActivity
         }
 
         if (!viewModel.isMovieFilterApplied()) {
-            showFilterEmptyState();
+            showFilterEmptyState(false);
         } else {
             hideFilterEmptyState();
         }
@@ -1195,7 +1199,7 @@ public class MainActivity extends AppCompatActivity
             if (opts == null) opts = MovieFilterOptions.defaults();
             viewModel.applyMovieFilter(opts);
         } else {
-            showFilterEmptyState();
+            showFilterEmptyState(false);
         }
     }
 
@@ -1213,6 +1217,12 @@ public class MainActivity extends AppCompatActivity
         }
 
         updateFilterFabVisibility();
+    }
+
+    private void clearFilterIfLeavingFilterMode() {
+        if (uiMode == UiMode.FILTER && viewModel.isMovieFilterApplied()) {
+            viewModel.clearMovieFilter();
+        }
     }
 
     // --- Tabs visuals + selection ---
@@ -1332,13 +1342,19 @@ public class MainActivity extends AppCompatActivity
     private void updateFilterFabVisibility() {
         if (binding == null || binding.fabFilterApplied == null) return;
 
+        boolean filterEmptyVisible =
+                (binding.emptyStateFilterText != null)
+                        && (binding.emptyStateFilterText.getVisibility() == View.VISIBLE);
+
         boolean show =
                 (uiMode == UiMode.FILTER)
                         && !isInSearchMode()
-                        && viewModel.isMovieFilterApplied();
+                        && viewModel.isMovieFilterApplied()
+                        && !filterEmptyVisible;
 
         binding.fabFilterApplied.setVisibility(show ? View.VISIBLE : View.GONE);
     }
+
 
     private void resetToTopFabVisibility() {
         if (binding == null || binding.fabToTop == null) return;
@@ -1413,10 +1429,6 @@ public class MainActivity extends AppCompatActivity
         }
     }
 
-    private void showFilterEmptyState() {
-        showFilterEmptyState(false);
-    }
-
     private void showFilterEmptyState(boolean filterApplied) {
         binding.recyclerView.setVisibility(View.GONE);
         resetToTopFabVisibility();
@@ -1435,7 +1447,7 @@ public class MainActivity extends AppCompatActivity
         }
 
         if (binding.btnOpenFilter != null) {
-            binding.btnOpenFilter.setVisibility(filterApplied ? View.GONE : View.VISIBLE);
+            binding.btnOpenFilter.setVisibility(View.VISIBLE);
         }
     }
 

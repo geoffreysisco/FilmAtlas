@@ -194,14 +194,14 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
             }
 
             viewModel.applyMovieFilter(f);
-            dismiss();
+            v.postDelayed(this::dismiss, 120);
         });
 
         view.findViewById(R.id.btn_clear).setOnClickListener(v -> {
 
             // If nothing is applied, Clear = Close
             if (!viewModel.isMovieFilterApplied()) {
-                dismiss();
+                v.postDelayed(this::dismiss, 120);
                 return;
             }
 
