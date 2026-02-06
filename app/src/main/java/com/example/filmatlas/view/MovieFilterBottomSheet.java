@@ -11,11 +11,10 @@ import android.widget.FrameLayout;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.lifecycle.ViewModelProvider;
-import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.filmatlas.R;
-import com.example.filmatlas.model.MovieFilterOptions;
 import com.example.filmatlas.model.GenreCacheEntity;
+import com.example.filmatlas.model.MovieFilterOptions;
 import com.example.filmatlas.viewmodel.MainActivityViewModel;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
@@ -32,13 +31,29 @@ import java.util.Set;
 
 public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
 
+    // =====================
+    // State keys (rotation-safe UI edits)
+    // =====================
+
+    private static final String KEY_SORT_CHECKED_ID = "filter_sort_checked_id";
+    private static final String KEY_GENRE_CHECKED = "filter_genre_checked";
+    private static final String KEY_GENRE_LABEL = "filter_genre_label";
+
+    // =====================
+    // Fields
+    // =====================
+
     private MainActivityViewModel viewModel;
     private Callback callback;
-
 
     // Backed by Room (genres table)
     private List<GenreCacheEntity> genres = new ArrayList<>();
     private boolean[] checked = new boolean[0];
+
+    // View refs (needed for onSaveInstanceState)
+    private TextInputLayout genreLayout;
+    private MaterialButtonToggleGroup toggleSort;
+    private MaterialAutoCompleteTextView genreDropdown;
 
     public interface Callback {
         void onFilterCleared();
@@ -90,11 +105,29 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
 
         viewModel = new ViewModelProvider(requireActivity()).get(MainActivityViewModel.class);
 
-        TextInputLayout genreLayout = view.findViewById(R.id.genre_input_layout);
-        MaterialButtonToggleGroup toggleSort = view.findViewById(R.id.toggle_sort);
-        MaterialAutoCompleteTextView genreDropdown = view.findViewById(R.id.genre_dropdown);
+        // View refs
+        genreLayout = view.findViewById(R.id.genre_input_layout);
+        toggleSort = view.findViewById(R.id.toggle_sort);
+        genreDropdown = view.findViewById(R.id.genre_dropdown);
 
-        // ---- Helper: sync UI from active filter ----
+        // Track whether we restored UI edits from rotation
+        final boolean restoredFromState = (savedInstanceState != null);
+
+        // Restore in-progress UI edits (if any)
+        if (savedInstanceState != null) {
+
+            int savedCheckedId =
+                    savedInstanceState.getInt(KEY_SORT_CHECKED_ID, R.id.btn_sort_popularity);
+            if (toggleSort != null) toggleSort.check(savedCheckedId);
+
+            boolean[] savedChecked = savedInstanceState.getBooleanArray(KEY_GENRE_CHECKED);
+            if (savedChecked != null) checked = savedChecked;
+
+            String savedLabel = savedInstanceState.getString(KEY_GENRE_LABEL, "Any");
+            if (genreDropdown != null) genreDropdown.setText(savedLabel, false);
+        }
+
+        // ---- Helper: sync UI from active filter (used when not restoring) ----
         final Runnable syncUiFromActiveFilter = () -> {
             MovieFilterOptions latest = viewModel.getActiveMovieFilterOptions().getValue();
             if (latest == null) latest = MovieFilterOptions.defaults();
@@ -117,23 +150,39 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
 
                 genreDropdown.setText(formatSelectedGenres(genres, checked), false);
             } else {
-                // genres not loaded yet
                 checked = new boolean[0];
                 genreDropdown.setText("Any", false);
             }
         };
 
-        // Initial UI sync (sort + "Any" if genres not loaded yet)
-        syncUiFromActiveFilter.run();
+        // Initial UI setup:
+        // - If we restored from rotation, do NOT overwrite restored edits.
+        // - Otherwise, sync from active filter/defaults.
+        if (!restoredFromState) {
+            syncUiFromActiveFilter.run();
+        }
 
-        // Observe genres from Room and keep UI in sync
+        // Observe genres from Room and keep UI in sync (careful with restored edits)
         viewModel.getGenresLiveData().observe(getViewLifecycleOwner(), list -> {
             if (list == null) return;
 
             genres = list;
 
-            // Now that we have genres, sync again so checked[] + dropdown reflect active filter
-            syncUiFromActiveFilter.run();
+            if (!restoredFromState) {
+                // Normal path: genres arrived, now we can fully sync.
+                syncUiFromActiveFilter.run();
+                return;
+            }
+
+            // Restored path: try to keep restored checked[] meaningful.
+            // If sizes mismatch, fall back to active filter (can't safely map).
+            if (checked == null || checked.length != genres.size()) {
+                syncUiFromActiveFilter.run();
+                return;
+            }
+
+            // Sizes match: refresh dropdown label from restored checked[] for accuracy.
+            genreDropdown.setText(formatSelectedGenres(genres, checked), false);
         });
 
         View.OnClickListener openGenres = v -> {
@@ -199,18 +248,9 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
 
         view.findViewById(R.id.btn_clear).setOnClickListener(v -> {
 
-            // If nothing is applied, Clear = Close
-            if (!viewModel.isMovieFilterApplied()) {
-                v.postDelayed(this::dismiss, 120);
-                return;
-            }
-
-            // Filter WAS applied: Clear it, but keep the sheet open.
-
-            // Reset UI state to defaults first (so user sees it cleared)
+            // Reset UI state to defaults (do NOT dismiss)
             toggleSort.check(R.id.btn_sort_popularity);
 
-            // Clear checked genres
             if (genres != null) {
                 checked = new boolean[genres.size()];
             } else {
@@ -218,14 +258,29 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
             }
             genreDropdown.setText("Any", false);
 
-            // Clear filter state (clears results via repository now)
+            // Clear filter state in ViewModel
             viewModel.clearMovieFilter();
 
-            // IMPORTANT: tell Activity to show the filter empty-state immediately
+            // Tell Activity to show empty state immediately
             viewModel.requestShowFilterEmptyState();
-
-            // Intentionally do NOT dismiss the bottom sheet
         });
+    }
+
+    @Override
+    public void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+
+        if (toggleSort != null) {
+            outState.putInt(KEY_SORT_CHECKED_ID, toggleSort.getCheckedButtonId());
+        }
+
+        if (checked != null) {
+            outState.putBooleanArray(KEY_GENRE_CHECKED, checked);
+        }
+
+        if (genreDropdown != null) {
+            outState.putString(KEY_GENRE_LABEL, String.valueOf(genreDropdown.getText()));
+        }
     }
 
     public void setCallback(@Nullable Callback callback) {
