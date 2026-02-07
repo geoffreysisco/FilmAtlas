@@ -88,7 +88,7 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
 
             if (isLandscape) {
                 behavior.setSkipCollapsed(true);
-                behavior.setHideable(false);
+                behavior.setHideable(true);
 
                 // Set immediately + again after layout (covers race conditions)
                 behavior.setState(BottomSheetBehavior.STATE_EXPANDED);

@@ -2,8 +2,8 @@ package com.example.filmatlas;
 
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.Configuration;
 import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -14,7 +14,6 @@ import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
-import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
@@ -46,6 +45,8 @@ import com.example.filmatlas.view.SearchSuggestionsAdapter;
 import com.example.filmatlas.viewmodel.MainActivityViewModel;
 import com.google.android.material.tabs.TabLayout;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 
 /**
@@ -67,10 +68,16 @@ public class MainActivity extends AppCompatActivity
     // Constants
     // =====================
 
-    private static final String KEY_UI_MODE = "ui_mode";
     private static final String KEY_RECYCLER_LAYOUT_STATE = "recycler_layout_state";
-    private static final String KEY_SELECTED_BROWSE_TAB = "selected_browse_tab";
-    private static final String KEY_SELECTED_MODE_TAB = "selected_mode_tab";
+    private static final String KEY_SELECTED_NAV_INDEX = "selected_nav_index";
+    private static final String KEY_NAV_BACK_STACK = "nav_back_stack";
+
+    // Unified index constants
+    private static final int NAV_DISCOVER = 0;
+    private static final int NAV_POPULAR = 1;
+    private static final int NAV_NEW = 2;
+    private static final int NAV_FAVORITES = 3;
+    private static final int NAV_FILTER = 4;
 
     private static final int TAB_DISCOVER = 0;
     private static final int TAB_POPULAR = 1;
@@ -112,9 +119,15 @@ public class MainActivity extends AppCompatActivity
 
     private TabLayout mainTabs;
     private TabLayout modeTabs;
+    private TabLayout unifiedTabs;
+
     private UiMode uiMode = UiMode.BROWSE;
     private int selectedTabIndex = TAB_DISCOVER;
     private int lastBrowseTabIndex = TAB_DISCOVER;
+    private int selectedNavIndex = NAV_DISCOVER;
+    private final Deque<Integer> navBackStack = new ArrayDeque<>();
+    private boolean handlingBackNav = false;
+    private int pendingRvNavIndex = -1;
     private int lastModeTabIndex = -1;
     private boolean restoringTabs = false;
     private CharSequence[] originalMainTabTitles;
@@ -145,6 +158,7 @@ public class MainActivity extends AppCompatActivity
 
         mainTabs = binding.mainTabs;
         modeTabs = binding.modeTabs;
+        unifiedTabs = binding.unifiedTabs;
 
         setSupportActionBar(binding.topAppBar);
         if (getSupportActionBar() != null) {
@@ -153,15 +167,30 @@ public class MainActivity extends AppCompatActivity
 
         skipSuggestionFetchBecauseRotation = (savedInstanceState != null);
 
-        String restoredUiModeName = UiMode.BROWSE.name();
-        int restoredModeTabPos = -1;
-
         if (savedInstanceState != null) {
-            selectedTabIndex = savedInstanceState.getInt(KEY_SELECTED_BROWSE_TAB, TAB_DISCOVER);
+
+            // Restore unified nav index first (drives unifiedTabs selection in landscape).
+            selectedNavIndex = savedInstanceState.getInt(
+                    KEY_SELECTED_NAV_INDEX,
+                    mapBrowseTabToNavIndex(selectedTabIndex)
+            );
+
+            // Rotation restore: capture which nav this RV state belongs to.
+            pendingRvNavIndex = selectedNavIndex;
+
             pendingRvState = savedInstanceState.getParcelable(KEY_RECYCLER_LAYOUT_STATE);
 
-            restoredUiModeName = savedInstanceState.getString(KEY_UI_MODE, UiMode.BROWSE.name());
-            restoredModeTabPos = savedInstanceState.getInt(KEY_SELECTED_MODE_TAB, -1);
+            // Restore navigation history (if present).
+            navBackStack.clear();
+            int[] restoredStack = savedInstanceState.getIntArray(KEY_NAV_BACK_STACK);
+            if (restoredStack != null && restoredStack.length > 0) {
+                for (int v : restoredStack) {
+                    navBackStack.addLast(v);
+                }
+            } else {
+                // Fallback: seed with current nav.
+                navBackStack.addLast(selectedNavIndex);
+            }
         }
 
         setupSystemInsets();
@@ -188,15 +217,66 @@ public class MainActivity extends AppCompatActivity
         binding.fabFilterApplied.setVisibility(View.GONE);
 
         if (savedInstanceState == null) {
-            enterBrowseModeAndSelectTab(TAB_DISCOVER, false);
+            selectNavIndex(NAV_DISCOVER, false);
+            recordNavSelection(NAV_DISCOVER);
         } else {
-            restoreInitialUi(restoredUiModeName, restoredModeTabPos, selectedTabIndex);
+
+            // Rotation restore: for browse tabs, do not trigger a new fetch.
+            if (pendingRvState != null && selectedNavIndex <= NAV_NEW) {
+
+                // Just sync tab visuals to match restored nav.
+                if (selectedNavIndex == NAV_DISCOVER) {
+                    restoringTabs = true;
+                    selectTabSafe(mainTabs, TAB_DISCOVER);
+                    if (unifiedTabs != null) selectTabSafe(unifiedTabs, NAV_DISCOVER);
+                    restoringTabs = false;
+                } else if (selectedNavIndex == NAV_POPULAR) {
+                    restoringTabs = true;
+                    selectTabSafe(mainTabs, TAB_POPULAR);
+                    if (unifiedTabs != null) selectTabSafe(unifiedTabs, NAV_POPULAR);
+                    restoringTabs = false;
+                } else if (selectedNavIndex == NAV_NEW) {
+                    restoringTabs = true;
+                    selectTabSafe(mainTabs, TAB_NOW_PLAYING);
+                    if (unifiedTabs != null) selectTabSafe(unifiedTabs, NAV_NEW);
+                    restoringTabs = false;
+                }
+
+                uiMode = UiMode.BROWSE;
+                setModeTabsVisualsEnabled(false);
+                clearModeTabsSelection();
+                setMainTabsVisualsEnabled(true);
+                hideFilterEmptyState();
+
+                applyMainTabTitles();
+
+            } else {
+                selectNavIndex(selectedNavIndex, false);
+
+                // Rotation restore: if Filter is applied, re-apply it once to ensure display list is populated.
+                if (selectedNavIndex == NAV_FILTER && viewModel.isMovieFilterApplied()) {
+                    MovieFilterOptions opts = viewModel.getActiveMovieFilterOptions().getValue();
+                    if (opts == null) opts = MovieFilterOptions.defaults();
+                    viewModel.applyMovieFilter(opts);
+                }
+
+                // Rotation restore: if we're on Filter and no filter is applied, ensure the correct empty state is visible.
+                if (selectedNavIndex == NAV_FILTER && !viewModel.isMovieFilterApplied()) {
+                    showFilterEmptyState(false);
+                    updateFilterFabVisibility();
+                }
+            }
         }
 
         updateFilterFabVisibility();
         applyMainTabTitles();
 
         hideSuggestions();
+
+        // Seed unified navigation history (only if restore did not provide it).
+        if (navBackStack.isEmpty()) {
+            recordNavSelection(selectedNavIndex);
+        }
     }
 
     @Override
@@ -204,83 +284,24 @@ public class MainActivity extends AppCompatActivity
 
         super.onSaveInstanceState(outState);
 
-        int selectedBrowseTabPosition =
-                (mainTabs != null) ? mainTabs.getSelectedTabPosition() : selectedTabIndex;
-        if (selectedBrowseTabPosition < 0) selectedBrowseTabPosition = lastBrowseTabIndex;
-        outState.putInt(KEY_SELECTED_BROWSE_TAB, selectedBrowseTabPosition);
-
-        outState.putString(KEY_UI_MODE, (uiMode != null) ? uiMode.name() : UiMode.BROWSE.name());
-
-        int selectedModeTabPosition =
-                (modeTabs != null) ? modeTabs.getSelectedTabPosition() : -1;
-        outState.putInt(KEY_SELECTED_MODE_TAB, selectedModeTabPosition);
-
         RecyclerView.LayoutManager lm = binding.recyclerView.getLayoutManager();
-        if (lm != null) {
+        List<Movie> current = (movieAdapter != null) ? movieAdapter.getCurrentList() : null;
+
+        boolean hasItems = (current != null && !current.isEmpty());
+        boolean isGridVisible = (binding.recyclerView.getVisibility() == View.VISIBLE);
+
+        if (lm != null && hasItems && isGridVisible) {
             outState.putParcelable(KEY_RECYCLER_LAYOUT_STATE, lm.onSaveInstanceState());
         }
-    }
 
-    private void restoreInitialUi(@NonNull String restoredUiModeName,
-                                  int restoredModeTabPosition,
-                                  int restoredBrowseTabPosition) {
+        outState.putInt(KEY_SELECTED_NAV_INDEX, selectedNavIndex);
 
-        boolean inSearch = isInSearchMode();
-
-        if (UiMode.FILTER.name().equals(restoredUiModeName)) {
-
-            restoringTabs = true;
-            selectTabSafe(modeTabs, (restoredModeTabPosition >= 0) ? restoredModeTabPosition : MODE_TAB_FILTER);
-            restoringTabs = false;
-
-            if (inSearch) {
-                uiMode = UiMode.FILTER;
-                setMainTabsVisualsEnabled(false);
-                clearMainTabsSelection();
-                setModeTabsVisualsEnabled(true);
-                hideFilterEmptyState();
-            } else {
-                enterFilterMode(false, false);
-            }
-            return;
+        int[] stack = new int[navBackStack.size()];
+        int i = 0;
+        for (Integer v : navBackStack) {
+            stack[i++] = (v == null) ? NAV_DISCOVER : v;
         }
-
-        if (UiMode.FAVORITES.name().equals(restoredUiModeName)) {
-
-            restoringTabs = true;
-            selectTabSafe(modeTabs, (restoredModeTabPosition >= 0) ? restoredModeTabPosition : MODE_TAB_FAVORITES);
-            restoringTabs = false;
-
-            if (inSearch) {
-                uiMode = UiMode.FAVORITES;
-                setMainTabsVisualsEnabled(false);
-                clearMainTabsSelection();
-                setModeTabsVisualsEnabled(true);
-                hideFilterEmptyState();
-                binding.recyclerView.setVisibility(View.VISIBLE);
-            } else {
-                enterFavoritesMode();
-            }
-            return;
-        }
-
-        uiMode = UiMode.BROWSE;
-
-        setModeTabsVisualsEnabled(false);
-        clearModeTabsSelection();
-        setMainTabsVisualsEnabled(true);
-
-        restoringTabs = true;
-        selectTabSafe(mainTabs, restoredBrowseTabPosition);
-        restoringTabs = false;
-
-        if (!inSearch) {
-            if (pendingRvState == null) {
-                applyBrowseTabSelection(restoredBrowseTabPosition, false);
-            }
-        }
-
-        exitFilterModeUi();
+        outState.putIntArray(KEY_NAV_BACK_STACK, stack);
     }
 
     @Override
@@ -336,6 +357,10 @@ public class MainActivity extends AppCompatActivity
                 int first = gridLayoutManager.findFirstVisibleItemPosition();
 
                 if ((visible + first) >= total - 4) {
+
+                    // Rotation restore guard: don't page while we're restoring scroll.
+                    if (pendingRvState != null) return;
+
                     viewModel.loadMore();
                 }
             }
@@ -360,16 +385,16 @@ public class MainActivity extends AppCompatActivity
             @Override
             public void handleOnBackPressed() {
 
-                if (uiMode == UiMode.FAVORITES || uiMode == UiMode.FILTER) {
-                    enterBrowseModeAndSelectTab(selectedTabIndex, false);
+                if (isInSearchMode()) {
+                    exitSearchUiAndMode();
                     return;
                 }
 
-                if (isInSearchMode()) {
-                    exitSearchUiAndMode();
-                } else {
-                    finish();
+                if (popBackStackAndNavigate()) {
+                    return;
                 }
+
+                finish();
             }
         });
     }
@@ -449,51 +474,25 @@ public class MainActivity extends AppCompatActivity
 
     private void handleSwipeTab(boolean swipeLeft) {
 
-        final int currentNode;
-        if (uiMode == UiMode.FAVORITES) {
-            currentNode = 1;
-        } else if (uiMode == UiMode.FILTER) {
-            currentNode = 2;
-        } else {
-            if (selectedTabIndex == TAB_DISCOVER) currentNode = 0;
-            else if (selectedTabIndex == TAB_POPULAR) currentNode = 4;
-            else currentNode = 3;
+        if (isInSearchMode()) return;
+
+        if (getSupportFragmentManager().findFragmentByTag("MovieFilterBottomSheet") != null) {
+            return;
         }
 
-        final int nextNode;
+        int current = selectedNavIndex;
+
+        int next;
         if (swipeLeft) {
-            nextNode = (currentNode - 1 + 5) % 5;
+            next = (current - 1 + 5) % 5;
         } else {
-            nextNode = (currentNode + 1) % 5;
+            next = (current + 1) % 5;
         }
 
-        switch (nextNode) {
-            case 0:
-                enterBrowseModeAndSelectTab(TAB_DISCOVER, false);
-                return;
+        selectNavIndex(next, false);
 
-            case 1:
-                restoringTabs = true;
-                selectTabSafe(modeTabs, MODE_TAB_FAVORITES);
-                restoringTabs = false;
-                enterFavoritesMode();
-                return;
-
-            case 2:
-                restoringTabs = true;
-                selectTabSafe(modeTabs, MODE_TAB_FILTER);
-                restoringTabs = false;
-                enterFilterMode(true, true);
-                return;
-
-            case 3:
-                enterBrowseModeAndSelectTab(TAB_NOW_PLAYING, false);
-                return;
-
-            case 4:
-                enterBrowseModeAndSelectTab(TAB_POPULAR, false);
-                return;
-        }
+        // Record swipe navigation in unified history.
+        recordNavSelection(next);
     }
 
     // =====================
@@ -637,12 +636,16 @@ public class MainActivity extends AppCompatActivity
     private void setupTabSystem() {
         setupMainTabs();
         setupModeTabs();
+        setupUnifiedTabs();
+
         applyTabPipes(mainTabs);
         applyTabPipes(modeTabs);
+        applyTabPipes(unifiedTabs);
 
         setMainTabsVisualsEnabled(true);
         setModeTabsVisualsEnabled(false);
         clearModeTabsSelection();
+
     }
 
     private void setupMainTabs() {
@@ -684,12 +687,14 @@ public class MainActivity extends AppCompatActivity
 
                 if (restoringTabs) return;
 
-                selectedTabIndex = tab.getPosition();
+                int browsePos = tab.getPosition();
+                selectedTabIndex = browsePos;
 
-                enterBrowseMode();
-                exitSearchUiAndMode();
+                // Unify through 0–4 nav index pipeline.
+                int nav = mapBrowseTabToNavIndex(browsePos);
+                selectNavIndex(nav, false);
+                recordNavSelection(nav);
 
-                applyBrowseTabSelection(selectedTabIndex, false);
                 applyMainTabTitles();
             }
 
@@ -713,7 +718,9 @@ public class MainActivity extends AppCompatActivity
                 }
 
                 exitSearchUiAndMode();
-                applyBrowseTabSelection(tab.getPosition(), true);
+
+                int nav = mapBrowseTabToNavIndex(tab.getPosition());
+                selectNavIndex(nav, true);
             }
         });
     }
@@ -751,8 +758,10 @@ public class MainActivity extends AppCompatActivity
 
                 if (tab.getPosition() == MODE_TAB_FAVORITES) {
                     enterFavoritesMode();
+                    recordNavSelection(NAV_FAVORITES);
                 } else {
                     enterFilterMode();
+                    recordNavSelection(NAV_FILTER);
                 }
 
                 applyMainTabTitles();
@@ -772,7 +781,7 @@ public class MainActivity extends AppCompatActivity
 
                 if (tab.getPosition() == MODE_TAB_FILTER) {
                     if (uiMode != UiMode.FILTER) {
-                        enterFilterMode();
+                        selectNavIndex(NAV_FILTER, false);
                         return;
                     }
 
@@ -780,7 +789,78 @@ public class MainActivity extends AppCompatActivity
                     return;
                 }
 
-                enterFavoritesMode();
+                selectNavIndex(NAV_FAVORITES, true);
+            }
+        });
+    }
+
+    private void setupUnifiedTabs() {
+        if (unifiedTabs == null) return;
+
+        unifiedTabs.clearOnTabSelectedListeners();
+        unifiedTabs.removeAllTabs();
+
+        unifiedTabs.setTabMode(TabLayout.MODE_FIXED);
+        unifiedTabs.setTabGravity(TabLayout.GRAVITY_FILL);
+        unifiedTabs.setTabIndicatorFullWidth(false);
+
+        unifiedTabs.addTab(unifiedTabs.newTab().setText("Discover"));
+        unifiedTabs.addTab(unifiedTabs.newTab().setText("Popular"));
+        unifiedTabs.addTab(unifiedTabs.newTab().setText("New"));
+        unifiedTabs.addTab(unifiedTabs.newTab().setText("Favorites"));
+        unifiedTabs.addTab(unifiedTabs.newTab().setText("Movie Filter"));
+
+        int safe = selectedNavIndex;
+        if (safe < 0 || safe >= unifiedTabs.getTabCount()) safe = NAV_DISCOVER;
+
+        restoringTabs = true;
+        TabLayout.Tab restored = unifiedTabs.getTabAt(safe);
+        if (restored != null) restored.select();
+        restoringTabs = false;
+
+        unifiedTabs.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override
+            public void onTabSelected(TabLayout.Tab tab) {
+
+                if (restoringTabs) return;
+
+                exitSearchUiAndMode();
+
+                int nav = tab.getPosition(); // unifiedTabs is already 0–4 in order
+                selectNavIndex(nav, false);
+                recordNavSelection(nav);
+
+                applyMainTabTitles();
+            }
+
+            @Override
+            public void onTabUnselected(TabLayout.Tab tab) {
+            }
+
+            @Override
+            public void onTabReselected(TabLayout.Tab tab) {
+
+                if (restoringTabs) return;
+
+                if (isInSearchMode()) {
+                    refreshSearchAndHideSuggestions();
+                    return;
+                }
+
+                int nav = tab.getPosition();
+
+                if (nav == NAV_FILTER) {
+                    if (uiMode != UiMode.FILTER) {
+                        selectNavIndex(NAV_FILTER, false);
+                        return;
+                    }
+
+                    openMovieFilterBottomSheet(!viewModel.isMovieFilterApplied());
+                    return;
+                }
+
+                // For non-filter tabs, treat reselection as "reselected" behavior.
+                selectNavIndex(nav, true);
             }
         });
     }
@@ -814,6 +894,33 @@ public class MainActivity extends AppCompatActivity
                     restoreRecyclerStateIfReady(movies);
 
                     if (uiMode == UiMode.FILTER) {
+
+                        // Rotation restore guard:
+                        // While restoring RV state, avoid incorrect empty-state transitions.
+                        // But if NO filter is applied, we MUST show the "no filter applied" empty state even during restore.
+                        if (pendingRvState != null) {
+
+                            // Rotation restore + FILTER APPLIED + 0 RESULTS:
+                            // There's nothing to restore, so clear pending restore and show the correct empty state.
+                            if (viewModel.isMovieFilterApplied() && (movies == null || movies.isEmpty())) {
+                                pendingRvState = null;
+                                pendingRvNavIndex = -1;
+
+                                showFilterEmptyState(true);
+                                updateFilterFabVisibility();
+                                return;
+                            }
+
+                            // During rotation restore, keep the list surface visible.
+                            if (binding != null && binding.recyclerView != null) {
+                                binding.recyclerView.setVisibility(View.VISIBLE);
+                            }
+
+                            hideFilterEmptyState();
+                            updateFilterFabVisibility();
+                            return;
+                        }
+
                         if (movies != null && !movies.isEmpty()) {
                             hideFilterEmptyState();
                         } else {
@@ -886,6 +993,78 @@ public class MainActivity extends AppCompatActivity
     // Core behavior: mode transitions
     // =====================
 
+    private void selectNavIndex(int navIndex, boolean reselected) {
+
+        selectedNavIndex = navIndex;
+
+        // Rotation restore safety:
+        // Only cancel a pending restore snapshot if we're navigating AWAY from the nav that snapshot belongs to.
+        // (On rotation restore, we must keep pendingRvState intact so the restore path can use it.)
+        if (pendingRvState != null && pendingRvNavIndex != navIndex) {
+            pendingRvState = null;
+            pendingRvNavIndex = -1;
+        }
+
+        handlingBackNav = true;
+
+        switch (navIndex) {
+            case NAV_DISCOVER:
+                if (mainTabs != null) {
+                    restoringTabs = true;
+                    selectTabSafe(mainTabs, TAB_DISCOVER);
+                    restoringTabs = false;
+                }
+                enterBrowseModeAndSelectTab(TAB_DISCOVER, reselected);
+                break;
+
+            case NAV_POPULAR:
+                if (mainTabs != null) {
+                    restoringTabs = true;
+                    selectTabSafe(mainTabs, TAB_POPULAR);
+                    restoringTabs = false;
+                }
+                enterBrowseModeAndSelectTab(TAB_POPULAR, reselected);
+                break;
+
+            case NAV_NEW:
+                if (mainTabs != null) {
+                    restoringTabs = true;
+                    selectTabSafe(mainTabs, TAB_NOW_PLAYING);
+                    restoringTabs = false;
+                }
+                enterBrowseModeAndSelectTab(TAB_NOW_PLAYING, reselected);
+                break;
+
+            case NAV_FAVORITES:
+                if (modeTabs != null) {
+                    restoringTabs = true;
+                    selectTabSafe(modeTabs, MODE_TAB_FAVORITES);
+                    restoringTabs = false;
+                }
+                enterFavoritesMode();
+                break;
+
+            case NAV_FILTER:
+                if (modeTabs != null) {
+                    restoringTabs = true;
+                    selectTabSafe(modeTabs, MODE_TAB_FILTER);
+                    restoringTabs = false;
+                }
+
+                // Rotation restore: do not re-enter filter mode in the ViewModel (it can clear the list).
+                // Restore UI only; data will rebind via existing state.
+                if (pendingRvState != null) {
+                    enterFilterMode(false, false);
+                } else {
+                    enterFilterMode();
+                }
+
+                break;
+        }
+
+        handlingBackNav = false;
+    }
+
     private void enterBrowseModeAndSelectTab(int tabIndex, boolean reselected) {
         enterBrowseMode();
 
@@ -900,6 +1079,17 @@ public class MainActivity extends AppCompatActivity
 
         selectedTabIndex = tabIndex;
         lastBrowseTabIndex = tabIndex;
+
+        selectedNavIndex = mapBrowseTabToNavIndex(tabIndex);
+
+        if (unifiedTabs != null) {
+            int current = unifiedTabs.getSelectedTabPosition();
+            if (current != selectedNavIndex) {
+                restoringTabs = true;
+                selectTabSafe(unifiedTabs, selectedNavIndex);
+                restoringTabs = false;
+            }
+        }
 
         applyBrowseTabSelection(tabIndex, reselected);
         applyMainTabTitles();
@@ -922,9 +1112,29 @@ public class MainActivity extends AppCompatActivity
     }
 
     private void enterFavoritesMode() {
+
+        // Remember where we came from (for Back behavior).
+        if (mainTabs != null) {
+            int pos = mainTabs.getSelectedTabPosition();
+            if (pos >= 0) lastBrowseTabIndex = pos;
+        } else {
+            lastBrowseTabIndex = selectedTabIndex;
+        }
+
         exitSearchUiAndMode();
         clearFilterIfLeavingFilterMode();
         uiMode = UiMode.FAVORITES;
+
+        selectedNavIndex = NAV_FAVORITES;
+
+        if (unifiedTabs != null) {
+            int current = unifiedTabs.getSelectedTabPosition();
+            if (current != NAV_FAVORITES) {
+                restoringTabs = true;
+                selectTabSafe(unifiedTabs, NAV_FAVORITES);
+                restoringTabs = false;
+            }
+        }
 
         resetToTopFabVisibility();
         setMainTabsVisualsEnabled(false);
@@ -952,7 +1162,27 @@ public class MainActivity extends AppCompatActivity
     }
 
     private void enterFilterMode(boolean showBottomSheet, boolean callViewModel) {
+
+        // Remember where we came from (for Back behavior).
+        if (mainTabs != null) {
+            int pos = mainTabs.getSelectedTabPosition();
+            if (pos >= 0) lastBrowseTabIndex = pos;
+        } else {
+            lastBrowseTabIndex = selectedTabIndex;
+        }
+
         uiMode = UiMode.FILTER;
+
+        selectedNavIndex = NAV_FILTER;
+
+        if (unifiedTabs != null) {
+            int current = unifiedTabs.getSelectedTabPosition();
+            if (current != NAV_FILTER) {
+                restoringTabs = true;
+                selectTabSafe(unifiedTabs, NAV_FILTER);
+                restoringTabs = false;
+            }
+        }
 
         resetToTopFabVisibility();
         setMainTabsVisualsEnabled(false);
@@ -963,10 +1193,21 @@ public class MainActivity extends AppCompatActivity
             viewModel.enterMovieFilterMode();
         }
 
-        if (!viewModel.isMovieFilterApplied()) {
-            showFilterEmptyState(false);
-        } else {
+        // Rotation restore guard: never force-open the bottom sheet.
+        // (showBottomSheet is already false on restore; this prevents any accidental reopen paths.)
+        if (pendingRvState != null) {
+            showBottomSheet = false;
+        }
+
+        // Rotation restore guard: don't show filter empty state until data re-binds.
+        if (pendingRvState != null) {
             hideFilterEmptyState();
+        } else {
+            if (!viewModel.isMovieFilterApplied()) {
+                showFilterEmptyState(false);
+            } else {
+                hideFilterEmptyState();
+            }
         }
 
         if (showBottomSheet) {
@@ -1043,6 +1284,16 @@ public class MainActivity extends AppCompatActivity
     }
 
     private void applyBrowseTabSelection(int tabIndex, boolean reselected) {
+
+        // Rotation restore guard:
+        // If we already have movies on screen, don't trigger a new browse fetch.
+        // This prevents "random refresh" (Discover) and paging resets (Popular/New).
+        if (!reselected && pendingRvState != null) {
+            List<Movie> current = viewModel.getDisplayMovies().getValue();
+            if (current != null && !current.isEmpty()) {
+                return;
+            }
+        }
 
         if (tabIndex == TAB_DISCOVER) {
 
@@ -1275,13 +1526,17 @@ public class MainActivity extends AppCompatActivity
         mainTabs.invalidate();
     }
 
-    private void selectTabSafe(@NonNull TabLayout tabs, int index) {
+    private void selectTabSafe(@Nullable TabLayout tabs, int index) {
+        if (tabs == null) return;
         if (index < 0 || index >= tabs.getTabCount()) return;
+
         TabLayout.Tab tab = tabs.getTabAt(index);
         if (tab != null) tab.select();
     }
 
-    private void applyTabPipes(@NonNull TabLayout tabs) {
+    private void applyTabPipes(@Nullable TabLayout tabs) {
+        if (tabs == null) return;
+
         View child = tabs.getChildAt(0);
         if (!(child instanceof LinearLayout)) return;
 
@@ -1294,15 +1549,64 @@ public class MainActivity extends AppCompatActivity
         strip.setDividerPadding(0);
     }
 
+    // --- Unified navigation index (0–4) ---
+
+    private int mapBrowseTabToNavIndex(int browseTabIndex) {
+        if (browseTabIndex == TAB_POPULAR) return NAV_POPULAR;
+        if (browseTabIndex == TAB_NOW_PLAYING) return NAV_NEW;
+        return NAV_DISCOVER;
+    }
+
+    // --- Unified navigation back stack (0–4) ---
+
+    private void recordNavSelection(int navIndex) {
+        if (handlingBackNav || restoringTabs) return;
+
+        Integer top = navBackStack.peekLast();
+        if (top != null && top == navIndex) return;
+
+        navBackStack.addLast(navIndex);
+
+        // Keep it bounded.
+        while (navBackStack.size() > 25) {
+            navBackStack.removeFirst();
+        }
+    }
+
+    private boolean popBackStackAndNavigate() {
+        if (navBackStack.size() <= 1) return false;
+
+        // Drop current node.
+        navBackStack.removeLast();
+
+        Integer target = navBackStack.peekLast();
+        if (target == null) return false;
+
+        handlingBackNav = true;
+
+        selectNavIndex(target, false);
+        return true;
+    }
+
     // --- Recycler state ---
 
     private void restoreRecyclerStateIfReady(List<Movie> movies) {
-        if (pendingRvState == null || movies == null || movies.isEmpty()) return;
+
+        if (pendingRvState == null) return;
+        if (pendingRvNavIndex != selectedNavIndex) return;
+        if (movies == null || movies.isEmpty()) return;
 
         RecyclerView.LayoutManager lm = binding.recyclerView.getLayoutManager();
-        if (lm != null) lm.onRestoreInstanceState(pendingRvState);
+        if (lm != null) {
+            lm.onRestoreInstanceState(pendingRvState);
+        }
 
+        // One-shot: clear after restore so it can't be overwritten by later submits.
         pendingRvState = null;
+        pendingRvNavIndex = -1;
+
+        // Post a no-op rebind tick to stabilize the list after state restore (rotation).
+        binding.recyclerView.post(() -> movieAdapter.notifyDataSetChanged());
     }
 
     // --- Keyboard ---
@@ -1557,4 +1861,6 @@ public class MainActivity extends AppCompatActivity
         return getResources().getConfiguration().orientation
                 == Configuration.ORIENTATION_LANDSCAPE;
     }
+
+    // --- DEBUG ---
 }
