@@ -51,11 +51,11 @@ import java.util.List;
 
 /**
  * Main UI controller for FilmAtlas.
- *
+ * <p>
  * This Activity hosts the primary movie grid and coordinates all top-level UI
  * behavior, including browse tabs, favorites, movie filtering, search, swipe
  * navigation, empty states, and system UI integration.
- *
+ * <p>
  * It acts as the orchestration layer between view components and
  * MainActivityViewModel, handling user interaction, visual state restoration,
  * and mode transitions without owning data or business logic.
@@ -81,7 +81,7 @@ public class MainActivity extends AppCompatActivity
 
     private static final int TAB_DISCOVER = 0;
     private static final int TAB_POPULAR = 1;
-    private static final int TAB_NOW_PLAYING = 2;
+    private static final int TAB_NEW = 2;
 
     private static final int MODE_TAB_FAVORITES = 0;
     private static final int MODE_TAB_FILTER = 1;
@@ -141,6 +141,7 @@ public class MainActivity extends AppCompatActivity
     private int modeTabsNormalTextColor;
 
     private GestureDetector swipeDetector;
+    private boolean restoringFromRotation = false;
 
     // =====================
     // Lifecycle
@@ -148,7 +149,6 @@ public class MainActivity extends AppCompatActivity
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-
         super.onCreate(savedInstanceState);
 
         EdgeToEdge.enable(this);
@@ -166,6 +166,8 @@ public class MainActivity extends AppCompatActivity
         }
 
         skipSuggestionFetchBecauseRotation = (savedInstanceState != null);
+
+        restoringFromRotation = (savedInstanceState != null);
 
         if (savedInstanceState != null) {
 
@@ -237,7 +239,7 @@ public class MainActivity extends AppCompatActivity
                     restoringTabs = false;
                 } else if (selectedNavIndex == NAV_NEW) {
                     restoringTabs = true;
-                    selectTabSafe(mainTabs, TAB_NOW_PLAYING);
+                    selectTabSafe(mainTabs, TAB_NEW);
                     if (unifiedTabs != null) selectTabSafe(unifiedTabs, NAV_NEW);
                     restoringTabs = false;
                 }
@@ -253,11 +255,17 @@ public class MainActivity extends AppCompatActivity
             } else {
                 selectNavIndex(selectedNavIndex, false);
 
-                // Rotation restore: if Filter is applied, re-apply it once to ensure display list is populated.
+                // Rotation restore: ONLY re-apply if we have nothing to display (e.g., process death).
                 if (selectedNavIndex == NAV_FILTER && viewModel.isMovieFilterApplied()) {
-                    MovieFilterOptions opts = viewModel.getActiveMovieFilterOptions().getValue();
-                    if (opts == null) opts = MovieFilterOptions.defaults();
-                    viewModel.applyMovieFilter(opts);
+
+                    List<Movie> current = viewModel.getDisplayMovies().getValue();
+                    boolean hasList = (current != null && !current.isEmpty());
+
+                    if (!hasList) {
+                        MovieFilterOptions opts = viewModel.getActiveMovieFilterOptions().getValue();
+                        if (opts == null) opts = MovieFilterOptions.defaults();
+                        viewModel.applyMovieFilter(opts);
+                    }
                 }
 
                 // Rotation restore: if we're on Filter and no filter is applied, ensure the correct empty state is visible.
@@ -277,6 +285,8 @@ public class MainActivity extends AppCompatActivity
         if (navBackStack.isEmpty()) {
             recordNavSelection(selectedNavIndex);
         }
+
+        restoringFromRotation = false;
     }
 
     @Override
@@ -350,7 +360,16 @@ public class MainActivity extends AppCompatActivity
                 updateFabVisibility(dy);
 
                 if (dy <= 0) return;
-                if (uiMode != UiMode.BROWSE) return;
+                if (isInSearchMode()) return;
+
+                // Allow paging in:
+                // - Browse mode (Discover/Popular/New)
+                // - Filter mode ONLY when a filter is actually applied
+                boolean canPage =
+                        (uiMode == UiMode.BROWSE)
+                                || (uiMode == UiMode.FILTER && viewModel.isMovieFilterApplied());
+
+                if (!canPage) return;
 
                 int visible = gridLayoutManager.getChildCount();
                 int total = gridLayoutManager.getItemCount();
@@ -484,9 +503,9 @@ public class MainActivity extends AppCompatActivity
 
         int next;
         if (swipeLeft) {
-            next = (current - 1 + 5) % 5;
-        } else {
             next = (current + 1) % 5;
+        } else {
+            next = (current - 1 + 5) % 5;
         }
 
         selectNavIndex(next, false);
@@ -1029,10 +1048,10 @@ public class MainActivity extends AppCompatActivity
             case NAV_NEW:
                 if (mainTabs != null) {
                     restoringTabs = true;
-                    selectTabSafe(mainTabs, TAB_NOW_PLAYING);
+                    selectTabSafe(mainTabs, TAB_NEW);
                     restoringTabs = false;
                 }
-                enterBrowseModeAndSelectTab(TAB_NOW_PLAYING, reselected);
+                enterBrowseModeAndSelectTab(TAB_NEW, reselected);
                 break;
 
             case NAV_FAVORITES:
@@ -1051,14 +1070,13 @@ public class MainActivity extends AppCompatActivity
                     restoringTabs = false;
                 }
 
-                // Rotation restore: do not re-enter filter mode in the ViewModel (it can clear the list).
-                // Restore UI only; data will rebind via existing state.
-                if (pendingRvState != null) {
+                // Rotation restore: do NOT auto-open the bottom sheet.
+                // Also do NOT call ViewModel enter logic on restore.
+                if (restoringFromRotation) {
                     enterFilterMode(false, false);
                 } else {
-                    enterFilterMode();
+                    enterFilterMode(true, true);
                 }
-
                 break;
         }
 
@@ -1312,7 +1330,7 @@ public class MainActivity extends AppCompatActivity
             return;
         }
 
-        if (tabIndex == TAB_NOW_PLAYING) {
+        if (tabIndex == TAB_NEW) {
             viewModel.selectNowPlaying(reselected);
         }
     }
@@ -1553,7 +1571,7 @@ public class MainActivity extends AppCompatActivity
 
     private int mapBrowseTabToNavIndex(int browseTabIndex) {
         if (browseTabIndex == TAB_POPULAR) return NAV_POPULAR;
-        if (browseTabIndex == TAB_NOW_PLAYING) return NAV_NEW;
+        if (browseTabIndex == TAB_NEW) return NAV_NEW;
         return NAV_DISCOVER;
     }
 
@@ -1777,7 +1795,7 @@ public class MainActivity extends AppCompatActivity
                 return "Back to Discover";
             case TAB_POPULAR:
                 return "Back to Popular";
-            case TAB_NOW_PLAYING:
+            case TAB_NEW:
                 return "Back to New";
             default:
                 return "Back to Browse";

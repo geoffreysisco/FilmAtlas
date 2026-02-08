@@ -47,11 +47,11 @@ public class MovieRepository {
     private enum BrowseMode {
         DISCOVER_RANDOM,
         MOVIES_FILTERED,
-        POPULAR,
-        NOW_PLAYING
+        MOVIES_POPULAR,
+        MOVIES_NEW
     }
 
-    private BrowseMode browseMode = BrowseMode.POPULAR;
+    private BrowseMode browseMode = BrowseMode.MOVIES_POPULAR;
     private MovieFilterOptions lastMovieFilterOptions = MovieFilterOptions.defaults();
 
     private final ArrayList<Movie> browseMovies = new ArrayList<>();
@@ -61,6 +61,8 @@ public class MovieRepository {
     private int browseCurrentPage = 1;
     private int browseTotalPages = Integer.MAX_VALUE;
     private boolean browseLoading = false;
+    private boolean isPagingBrowse = false;
+
 
     private int discoverStartPage = 1;
 
@@ -124,12 +126,12 @@ public class MovieRepository {
     // =====================
 
     public void loadFirstPagePopular(@NonNull LoadingCallback cb) {
-        setBrowseMode(BrowseMode.POPULAR);
+        setBrowseMode(BrowseMode.MOVIES_POPULAR);
         loadFirstPageBrowseInternal(cb);
     }
 
     public void loadFirstPageNowPlaying(@NonNull LoadingCallback cb) {
-        setBrowseMode(BrowseMode.NOW_PLAYING);
+        setBrowseMode(BrowseMode.MOVIES_NEW);
         loadFirstPageBrowseInternal(cb);
     }
 
@@ -157,7 +159,12 @@ public class MovieRepository {
     }
 
     public void loadNextPageBrowse(@NonNull LoadingCallback cb) {
+        if (isPagingBrowse) return;
+
+        isPagingBrowse = true;
+
         if (browseLoading || browseCurrentPage > browseTotalPages) {
+            isPagingBrowse = false;
             cb.onDone();
             return;
         }
@@ -171,6 +178,7 @@ public class MovieRepository {
         if (call == null) {
             browseLoading = false;
             setLoading(false);
+            isPagingBrowse = false;
             cb.onDone();
             return;
         }
@@ -180,6 +188,7 @@ public class MovieRepository {
             public void onResponse(Call<MoviesResponse> call, Response<MoviesResponse> response) {
                 browseLoading = false;
                 setLoading(false);
+                isPagingBrowse = false;
                 cb.onDone();
 
                 if (!response.isSuccessful() || response.body() == null) return;
@@ -213,6 +222,7 @@ public class MovieRepository {
             public void onFailure(Call<MoviesResponse> call, Throwable t) {
                 browseLoading = false;
                 setLoading(false);
+                isPagingBrowse = false;
                 cb.onDone();
             }
         });
@@ -229,7 +239,7 @@ public class MovieRepository {
     private Call<MoviesResponse> buildBrowseCall(@NonNull MovieApiService api, int page) {
         String apiKey = BuildConfig.TMDB_API_KEY;
 
-        if (browseMode == BrowseMode.POPULAR) {
+        if (browseMode == BrowseMode.MOVIES_POPULAR) {
             return api.discoverMoviesByRating(
                     apiKey, "vote_average.desc", 500,
                     "1990-01-01", getTodayDate(), "99",
@@ -237,10 +247,10 @@ public class MovieRepository {
             );
         }
 
-        if (browseMode == BrowseMode.NOW_PLAYING) {
+        if (browseMode == BrowseMode.MOVIES_NEW) {
             return api.discoverMoviesByRating(
                     apiKey, "primary_release_date.desc", 20,
-                    getDateDaysAgo(90), getTodayDate(), "0",
+                    getDateDaysAgo(365), getTodayDate(), "0",
                     page, "US", "US", "3|4", "en"
             );
         }

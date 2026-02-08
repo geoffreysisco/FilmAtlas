@@ -1,6 +1,7 @@
 package com.example.filmatlas.view;
 
 import android.app.Dialog;
+import android.content.DialogInterface;
 import android.content.res.Configuration;
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -19,6 +20,7 @@ import com.example.filmatlas.viewmodel.MainActivityViewModel;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
+import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.MaterialAutoCompleteTextView;
@@ -66,7 +68,7 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
             @Nullable ViewGroup container,
             @Nullable Bundle savedInstanceState
     ) {
-        return inflater.inflate(R.layout.bottom_sheet_movie_filter, container, false);
+        return inflater.inflate(R.layout.movie_filter_bottom_sheet, container, false);
     }
 
     @NonNull
@@ -109,6 +111,15 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
         genreLayout = view.findViewById(R.id.genre_input_layout);
         toggleSort = view.findViewById(R.id.toggle_sort);
         genreDropdown = view.findViewById(R.id.genre_dropdown);
+
+        final MaterialButton btnClear = view.findViewById(R.id.btn_clear);
+        final MaterialButton btnClose = view.findViewById(R.id.btn_close);
+        final MaterialButton btnApply = view.findViewById(R.id.btn_apply);
+
+        final Runnable updateClearVisibility = () -> {
+            boolean show = viewModel.isMovieFilterApplied() || hasPendingChanges();
+            btnClear.setVisibility(show ? View.VISIBLE : View.GONE);
+        };
 
         // Track whether we restored UI edits from rotation
         final boolean restoredFromState = (savedInstanceState != null);
@@ -162,6 +173,13 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
             syncUiFromActiveFilter.run();
         }
 
+        updateClearVisibility.run();
+
+        toggleSort.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
+            if (!isChecked) return;
+            updateClearVisibility.run();
+        });
+
         // Observe genres from Room and keep UI in sync (careful with restored edits)
         viewModel.getGenresLiveData().observe(getViewLifecycleOwner(), list -> {
             if (list == null) return;
@@ -212,9 +230,10 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
                             checked,
                             (dialog, which, isChecked) -> checked[which] = isChecked
                     )
-                    .setPositiveButton("OK", (dialog, which) ->
-                            genreDropdown.setText(formatSelectedGenres(genres, checked), false)
-                    )
+                    .setPositiveButton("OK", (dialog, which) -> {
+                        genreDropdown.setText(formatSelectedGenres(genres, checked), false);
+                        updateClearVisibility.run();
+                    })
                     .setNegativeButton("Cancel", null)
                     .show();
         };
@@ -224,7 +243,7 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
             genreLayout.setEndIconOnClickListener(openGenres);
         }
 
-        view.findViewById(R.id.btn_apply).setOnClickListener(v -> {
+        btnApply.setOnClickListener(v -> {
             MovieFilterOptions f = MovieFilterOptions.defaults();
 
             int checkedId = toggleSort.getCheckedButtonId();
@@ -243,10 +262,11 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
             }
 
             viewModel.applyMovieFilter(f);
+            updateClearVisibility.run();
             v.postDelayed(this::dismiss, 120);
         });
 
-        view.findViewById(R.id.btn_clear).setOnClickListener(v -> {
+        btnClear.setOnClickListener(v -> {
 
             // Reset UI state to defaults (do NOT dismiss)
             toggleSort.check(R.id.btn_sort_popularity);
@@ -263,7 +283,10 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
 
             // Tell Activity to show empty state immediately
             viewModel.requestShowFilterEmptyState();
+            updateClearVisibility.run();
         });
+
+        btnClose.setOnClickListener(v -> dismiss());
     }
 
     @Override
@@ -285,6 +308,29 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
 
     public void setCallback(@Nullable Callback callback) {
         this.callback = callback;
+    }
+
+    private boolean hasPendingChanges() {
+
+        // Default sort = popularity
+        int checkedId = (toggleSort != null) ? toggleSort.getCheckedButtonId() : View.NO_ID;
+
+        // If nothing is checked yet (startup moment), treat as NOT changed.
+        boolean sortChanged =
+                (checkedId != View.NO_ID) && (checkedId != R.id.btn_sort_popularity);
+
+        // Default genres = none selected
+        boolean genreChanged = false;
+        if (checked != null) {
+            for (boolean b : checked) {
+                if (b) {
+                    genreChanged = true;
+                    break;
+                }
+            }
+        }
+
+        return sortChanged || genreChanged;
     }
 
     private String formatSelectedGenres(List<GenreCacheEntity> genres, boolean[] checked) {
