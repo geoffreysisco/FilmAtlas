@@ -18,6 +18,7 @@ import com.example.filmatlas.network.MoviesResponse;
 import com.example.filmatlas.repository.FavoritesRepository;
 import com.example.filmatlas.repository.GenresRepository;
 import com.example.filmatlas.repository.MovieRepository;
+import com.example.filmatlas.repository.SearchHistoryRepository;
 import com.example.filmatlas.serviceapi.MovieApiService;
 import com.example.filmatlas.serviceapi.RetrofitInstance;
 
@@ -68,6 +69,8 @@ public class MainActivityViewModel extends AndroidViewModel {
     private final GenresRepository genresRepository;
     private final MovieApiService movieApiService;
 
+    private final SearchHistoryRepository searchHistoryRepository;
+
     // =====================
     // Streams
     // =====================
@@ -114,7 +117,10 @@ public class MainActivityViewModel extends AndroidViewModel {
     private int searchTotalPages = Integer.MAX_VALUE;
 
     private String lastSearchQuery = "";
+    private String lastSearchLabel = "";
     private Integer lastSearchYear = null;
+
+    private boolean searchHistoryRecordedThisSession = false;
 
     // =====================
     // Autocomplete suggestions
@@ -124,6 +130,16 @@ public class MainActivityViewModel extends AndroidViewModel {
             new MutableLiveData<>(new ArrayList<>());
 
     private Call<MoviesResponse> suggestionsCall;
+
+    // =====================
+    // Search history (Room)
+    // =====================
+
+    private final LiveData<List<String>> recentSearchQueriesLiveData;
+
+    public LiveData<List<String>> getRecentSearchQueries() {
+        return recentSearchQueriesLiveData;
+    }
 
     // =====================
     // Filter UI events (Activity shows empty state)
@@ -154,6 +170,9 @@ public class MainActivityViewModel extends AndroidViewModel {
 
         movieRepository = new MovieRepository(application);
         favoritesRepository = new FavoritesRepository(application);
+
+        searchHistoryRepository = new SearchHistoryRepository(application);
+        recentSearchQueriesLiveData = searchHistoryRepository.observeRecentQueries(10);
 
         // Repo stream
         browseLiveData = movieRepository.getBrowseLiveData();
@@ -336,6 +355,7 @@ public class MainActivityViewModel extends AndroidViewModel {
     // =====================
 
     public void setQuery(@NonNull String query) {
+        String label = (query == null) ? "" : query.trim();
         String raw = (query == null) ? "" : query.trim();
 
         // Extract trailing year like "Home 2017" or "Home (2017)"
@@ -360,6 +380,7 @@ public class MainActivityViewModel extends AndroidViewModel {
             return;
         }
 
+        lastSearchLabel = label;
         searchFirstPage(raw, year);
     }
 
@@ -379,6 +400,8 @@ public class MainActivityViewModel extends AndroidViewModel {
 
         lastSearchQuery = q;
         lastSearchYear = year;
+
+        searchHistoryRecordedThisSession = false;
 
         resetSearchPagingInternal();
         searchLiveData.setValue(new ArrayList<>());
@@ -407,6 +430,36 @@ public class MainActivityViewModel extends AndroidViewModel {
             displayMode.setValue(DisplayMode.BROWSE);
         }
     }
+
+    /**
+     * Rotation restore helper.
+     * Restores the "cleared search" state without starting a new query.
+     * Keeps display routing in SEARCH so the Activity can show the search empty state + history.
+     */
+    public void restoreClearedSearchState() {
+        searchMode.setValue(true);
+        displayMode.setValue(DisplayMode.SEARCH);
+
+        // Search and Filter are mutually exclusive
+        clearFilterStateInternal();
+
+        resetSearchPagingInternal();
+
+        lastSearchQuery = "";
+        lastSearchLabel = "";
+        lastSearchYear = null;
+
+        searchHistoryRecordedThisSession = false;
+
+        searchLiveData.setValue(new ArrayList<>());
+        loadingLiveData.postValue(false);
+    }
+
+    public void restoreSearchUiStateOnly() {
+        searchMode.setValue(true);
+        displayMode.setValue(DisplayMode.SEARCH);
+    }
+
 
     private void loadNextPageSearch() {
         if (displayMode.getValue() != DisplayMode.SEARCH) return;
@@ -445,6 +498,20 @@ public class MainActivityViewModel extends AndroidViewModel {
                 List<Movie> incoming = body.getMovies();
                 List<Movie> filtered = filterOutMissingPosters(incoming);
 
+                // Record history ONLY after first successful page returns real results.
+                if (!searchHistoryRecordedThisSession
+                        && searchCurrentPage == 1
+                        && filtered != null
+                        && !filtered.isEmpty()) {
+
+                    searchHistoryRecordedThisSession = true;
+
+                    String label = (lastSearchLabel == null) ? "" : lastSearchLabel.trim();
+                    if (!label.isEmpty()) {
+                        searchHistoryRepository.recordQuery(label);
+                    }
+                }
+
                 List<Movie> current = searchLiveData.getValue();
                 if (current == null) current = Collections.emptyList();
 
@@ -470,12 +537,46 @@ public class MainActivityViewModel extends AndroidViewModel {
     public void fetchSuggestions(@NonNull String raw) {
         String q = (raw == null) ? "" : raw.trim();
 
+        // =====================
+        // Empty query → show recent search history
+        // =====================
+        if (q.isEmpty()) {
+
+            cancelSuggestionsCall();
+
+            List<String> history = recentSearchQueriesLiveData.getValue();
+            ArrayList<Movie> pseudo = new ArrayList<>();
+
+            if (history != null) {
+                for (String h : history) {
+                    if (h == null) continue;
+
+                    String label = h.trim();
+                    if (label.isEmpty()) continue;
+
+                    Movie m = new Movie();
+                    m.setId(-1);        // Sentinel: this row is a history entry, not a real TMDB movie
+                    m.setTitle(label);  // Store EXACT label the user searched for
+                    pseudo.add(m);
+                }
+            }
+
+            suggestionsLiveData.setValue(pseudo);
+            return;
+        }
+
+        // =====================
+        // Short query → clear suggestions
+        // =====================
         if (q.length() < 2) {
             suggestionsLiveData.setValue(new ArrayList<>());
             cancelSuggestionsCall();
             return;
         }
 
+        // =====================
+        // Normal TMDB suggestions
+        // =====================
         cancelSuggestionsCall();
 
         suggestionsCall = movieApiService.searchMoviesByTitle(
@@ -521,6 +622,8 @@ public class MainActivityViewModel extends AndroidViewModel {
         lastSearchQuery = "";
         lastSearchYear = null;
 
+        searchHistoryRecordedThisSession = false;
+
         searchLiveData.setValue(new ArrayList<>());
         loadingLiveData.postValue(false);
     }
@@ -530,6 +633,17 @@ public class MainActivityViewModel extends AndroidViewModel {
             suggestionsCall.cancel();
             suggestionsCall = null;
         }
+    }
+
+    // =====================
+    // Search History
+    // =====================
+
+    public void removeSearchHistoryEntry(@NonNull String label) {
+        String q = (label == null) ? "" : label.trim();
+        if (q.isEmpty()) return;
+
+        searchHistoryRepository.deleteQuery(q);
     }
 
     // =====================
@@ -567,6 +681,8 @@ public class MainActivityViewModel extends AndroidViewModel {
 
         lastSearchQuery = "";
         lastSearchYear = null;
+
+        searchHistoryRecordedThisSession = false;
 
         searchLiveData.setValue(new ArrayList<>());
         loadingLiveData.postValue(false);

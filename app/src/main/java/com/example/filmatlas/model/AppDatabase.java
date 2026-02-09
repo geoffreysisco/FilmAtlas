@@ -1,4 +1,3 @@
-// AppDatabase.java (COPY/PASTE REPLACEMENT)
 package com.example.filmatlas.model;
 
 import android.content.Context;
@@ -10,25 +9,30 @@ import androidx.room.migration.Migration;
 import androidx.sqlite.db.SupportSQLiteDatabase;
 
 @Database(
-        entities = { GenreCacheEntity.class, FavoriteMovieEntity.class },
-        version = 3,
+        entities = {
+                GenreCacheEntity.class,
+                FavoriteMovieEntity.class,
+                SearchQueryEntity.class
+        },
+        version = 4,
         exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
 
     private static volatile AppDatabase INSTANCE;
 
-    // Existing DAO
+    // Existing DAOs
     public abstract GenreCacheDao genreDao();
+    public abstract FavoriteMovieDao favoriteMovieDao();
 
     // NEW DAO
-    public abstract FavoriteMovieDao favoriteMovieDao();
+    public abstract SearchHistoryDao searchHistoryDao();
 
     // =====================
     // Migrations
     // =====================
 
-    // Your existing migration (kept as-is)
+    // Existing migration
     static final Migration MIGRATION_1_2 = new Migration(1, 2) {
         @Override
         public void migrate(SupportSQLiteDatabase db) {
@@ -42,7 +46,7 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
-    // NEW migration: creates favorites table only (does not touch genres)
+    // Existing migration
     static final Migration MIGRATION_2_3 = new Migration(2, 3) {
         @Override
         public void migrate(SupportSQLiteDatabase db) {
@@ -61,6 +65,19 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    // NEW migration: creates search_history table
+    static final Migration MIGRATION_3_4 = new Migration(3, 4) {
+        @Override
+        public void migrate(SupportSQLiteDatabase db) {
+            db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS search_history (" +
+                            "query TEXT NOT NULL, " +
+                            "lastUsedEpoch INTEGER NOT NULL, " +
+                            "PRIMARY KEY(query))"
+            );
+        }
+    };
+
     // =====================
     // Singleton
     // =====================
@@ -74,7 +91,11 @@ public abstract class AppDatabase extends RoomDatabase {
                                     AppDatabase.class,
                                     "filmatlas.db"
                             )
-                            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                            .addMigrations(
+                                    MIGRATION_1_2,
+                                    MIGRATION_2_3,
+                                    MIGRATION_3_4
+                            )
                             .build();
                 }
             }

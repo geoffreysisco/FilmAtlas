@@ -71,6 +71,8 @@ public class MainActivity extends AppCompatActivity
     private static final String KEY_RECYCLER_LAYOUT_STATE = "recycler_layout_state";
     private static final String KEY_SELECTED_NAV_INDEX = "selected_nav_index";
     private static final String KEY_NAV_BACK_STACK = "nav_back_stack";
+    private static final String KEY_WAS_IN_SEARCH_MODE = "was_in_search_mode";
+    private static final String KEY_SEARCH_PILL_TEXT = "search_pill_text";
 
     // Unified index constants
     private static final int NAV_DISCOVER = 0;
@@ -110,6 +112,7 @@ public class MainActivity extends AppCompatActivity
 
     private final Handler searchHandler = new Handler(Looper.getMainLooper());
     private boolean suppressSuggestionFetch = false;
+    private boolean restoringSearchUi = false;
     private boolean skipSuggestionFetchBecauseRotation = false;
     private Runnable searchSuggestionsRunnable;
     private EditText input;
@@ -204,6 +207,35 @@ public class MainActivity extends AppCompatActivity
 
         setupTabSystem();
         setupObservers();
+
+        if (savedInstanceState != null) {
+
+            boolean wasInSearch =
+                    savedInstanceState.getBoolean(KEY_WAS_IN_SEARCH_MODE, false);
+
+            String pillText =
+                    savedInstanceState.getString(KEY_SEARCH_PILL_TEXT, "");
+
+            if (wasInSearch) {
+
+                restoringSearchUi = true;   // ← move it HERE
+
+                viewModel.restoreSearchUiStateOnly();
+
+                if (input != null) {
+                    input.setText(pillText);
+                    input.setSelection(pillText.length());
+                    input.requestFocus();
+                }
+
+                viewModel.fetchSuggestions(""); // show history list again
+
+                if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
+
+                restoringSearchUi = false;  // ← stays here
+            }
+        }
+
         setupBackPress();
 
         setupSwipeDetector();
@@ -253,7 +285,13 @@ public class MainActivity extends AppCompatActivity
                 applyMainTabTitles();
 
             } else {
-                selectNavIndex(selectedNavIndex, false);
+
+                boolean wasInSearch =
+                        savedInstanceState.getBoolean(KEY_WAS_IN_SEARCH_MODE, false);
+
+                if (!wasInSearch) {
+                    selectNavIndex(selectedNavIndex, false);
+                }
 
                 // Rotation restore: ONLY re-apply if we have nothing to display (e.g., process death).
                 if (selectedNavIndex == NAV_FILTER && viewModel.isMovieFilterApplied()) {
@@ -279,14 +317,24 @@ public class MainActivity extends AppCompatActivity
         updateFilterFabVisibility();
         applyMainTabTitles();
 
-        hideSuggestions();
-
         // Seed unified navigation history (only if restore did not provide it).
         if (navBackStack.isEmpty()) {
             recordNavSelection(selectedNavIndex);
         }
 
         restoringFromRotation = false;
+    }
+
+    @Override
+    protected void onRestoreInstanceState(@NonNull Bundle savedInstanceState) {
+        restoringSearchUi = true;          // keep ON through super restore
+        super.onRestoreInstanceState(savedInstanceState);
+    }
+
+    @Override
+    protected void onPostCreate(@Nullable Bundle savedInstanceState) {
+        super.onPostCreate(savedInstanceState);
+        restoringSearchUi = false;         // restore window ends here
     }
 
     @Override
@@ -312,6 +360,13 @@ public class MainActivity extends AppCompatActivity
             stack[i++] = (v == null) ? NAV_DISCOVER : v;
         }
         outState.putIntArray(KEY_NAV_BACK_STACK, stack);
+
+        outState.putBoolean(KEY_WAS_IN_SEARCH_MODE, isInSearchMode());
+
+        String pillText = (input == null || input.getText() == null)
+                ? ""
+                : input.getText().toString();
+        outState.putString(KEY_SEARCH_PILL_TEXT, pillText);
     }
 
     @Override
@@ -439,8 +494,6 @@ public class MainActivity extends AppCompatActivity
             public boolean onFling(@Nullable MotionEvent e1, @Nullable MotionEvent e2, float velocityX, float velocityY) {
                 if (e1 == null || e2 == null) return false;
 
-                if (isInSearchMode()) return false;
-
                 if (getSupportFragmentManager().findFragmentByTag("MovieFilterBottomSheet") != null) {
                     return false;
                 }
@@ -472,16 +525,60 @@ public class MainActivity extends AppCompatActivity
         final View root = (binding.rootLayout != null) ? binding.rootLayout : binding.getRoot();
 
         root.setOnTouchListener((v, event) -> {
+
+            // Always feed swipe detector first
             if (swipeDetector != null) swipeDetector.onTouchEvent(event);
+
+            // Tap-out dismiss (only when suggestions are showing)
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+
+                boolean suggestionsVisible =
+                        (suggestionsList != null && suggestionsList.getVisibility() == View.VISIBLE);
+
+                if (suggestionsVisible) {
+
+                    boolean insideSuggestions = isRawTouchInsideView(event, suggestionsList);
+                    boolean insideSearchPill = (binding != null)
+                            && (binding.searchActionRoot != null)
+                            && isRawTouchInsideView(event, binding.searchActionRoot);
+
+                    // Tap anywhere else → dismiss overlay + drop focus (this is the "tap out")
+                    if (!insideSuggestions && !insideSearchPill) {
+                        hideSuggestions();
+
+                        if (input != null) input.clearFocus();
+                        if (input != null) hideKeyboard(input);
+                    }
+                }
+            }
+
             if (event.getAction() == MotionEvent.ACTION_UP) v.performClick();
-            return false;
+            return false; // don't consume; let tabs/recycler still receive clicks
         });
 
         binding.recyclerView.addOnItemTouchListener(new RecyclerView.SimpleOnItemTouchListener() {
+
             @Override
             public boolean onInterceptTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
+
+                // Forward touches to swipe detector first
                 if (swipeDetector != null) swipeDetector.onTouchEvent(e);
-                return false;
+
+                if (e.getAction() != MotionEvent.ACTION_DOWN) return false;
+
+                boolean suggestionsVisible =
+                        (suggestionsList != null && suggestionsList.getVisibility() == View.VISIBLE);
+
+                boolean searchHasFocus = (input != null && input.hasFocus());
+
+                if (!suggestionsVisible && !searchHasFocus) return false;
+
+                // Dismiss suggestions + focus when touching the movie grid
+                hideSuggestions();
+                if (input != null) input.clearFocus();
+                if (input != null) hideKeyboard(input);
+
+                return false; // don't consume → allow normal clicks/swipes
             }
 
             @Override
@@ -493,10 +590,13 @@ public class MainActivity extends AppCompatActivity
 
     private void handleSwipeTab(boolean swipeLeft) {
 
-        if (isInSearchMode()) return;
-
         if (getSupportFragmentManager().findFragmentByTag("MovieFilterBottomSheet") != null) {
             return;
+        }
+
+        // Swiping while searching should behave like: "leave search and navigate"
+        if (isInSearchMode()) {
+            exitSearchUiAndMode();
         }
 
         int current = selectedNavIndex;
@@ -536,6 +636,8 @@ public class MainActivity extends AppCompatActivity
             @Override
             public void onTextChanged(CharSequence s, int st, int b, int c) {
 
+                if (restoringSearchUi) return;
+
                 String query = (s == null) ? "" : s.toString().trim();
 
                 if (clear != null) {
@@ -544,11 +646,6 @@ public class MainActivity extends AppCompatActivity
 
                 if (suppressSuggestionFetch) return;
 
-                if (skipSuggestionFetchBecauseRotation && !query.isEmpty()) {
-                    skipSuggestionFetchBecauseRotation = false;
-                    hideSuggestions();
-                    return;
-                }
                 skipSuggestionFetchBecauseRotation = false;
 
                 if (searchSuggestionsRunnable != null) {
@@ -579,8 +676,14 @@ public class MainActivity extends AppCompatActivity
                 hideSuggestions();
                 viewModel.clearSearchResultsOnly();
 
+                // Clearing the pill does NOT mean leaving search.
+                // If the pill is focused and empty, restore recent history suggestions immediately.
+                viewModel.fetchSuggestions("");
+                if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
+
                 input.requestFocus();
                 showKeyboard(input);
+
             });
         }
 
@@ -610,42 +713,115 @@ public class MainActivity extends AppCompatActivity
     private void setupSearchSuggestions() {
         suggestionsList = binding.searchSuggestionsList;
 
-        suggestionsAdapter = new SearchSuggestionsAdapter(movie -> {
+        suggestionsAdapter = new SearchSuggestionsAdapter(new SearchSuggestionsAdapter.Callback() {
+            @Override
+            public void onSuggestionClicked(@NonNull Movie movie) {
 
-            if (searchSuggestionsRunnable != null) {
-                searchHandler.removeCallbacks(searchSuggestionsRunnable);
-                searchSuggestionsRunnable = null;
+                if (searchSuggestionsRunnable != null) {
+                    searchHandler.removeCallbacks(searchSuggestionsRunnable);
+                    searchSuggestionsRunnable = null;
+                }
+
+                String title = movie.getTitle();
+                if (title == null) title = "";
+                title = title.trim();
+
+                String year = movie.getReleaseYear();
+                if (year == null) year = "";
+                year = year.trim();
+
+                boolean isHistorySuggestion = (movie.getId() != null && movie.getId() == -1);
+
+                String label = year.isEmpty() ? title : (title + " " + year);
+
+                suppressSuggestionFetch = true;
+                input.setText(label);
+                input.setSelection(input.getText().length());
+                suppressSuggestionFetch = false;
+
+                if (!isInSearchMode()) {
+                    rememberLastPlaceBeforeSearch();
+                }
+
+                if (isHistorySuggestion) {
+                    viewModel.setQuery(title);
+                } else {
+                    viewModel.setQuery(label);
+                }
+
+                hideSuggestions();
+                hideKeyboard(input);
+                input.clearFocus();
             }
 
-            String title = movie.getTitle();
-            if (title == null) title = "";
-            title = title.trim();
-
-            String year = movie.getReleaseYear();
-            if (year == null) year = "";
-            year = year.trim();
-
-            String label = year.isEmpty() ? title : (title + " " + year);
-
-            suppressSuggestionFetch = true;
-            input.setText(label);
-            input.setSelection(input.getText().length());
-            suppressSuggestionFetch = false;
-
-            if (!isInSearchMode()) {
-                rememberLastPlaceBeforeSearch();
+            @Override
+            public void onSuggestionRemoveClicked(@NonNull Movie movie) {
+                viewModel.removeSearchHistoryEntry(movie.getTitle());
             }
-
-            viewModel.setQuery(label);
-
-            hideSuggestions();
-
-            hideKeyboard(input);
-            input.clearFocus();
         });
 
         suggestionsList.setLayoutManager(new LinearLayoutManager(this));
         suggestionsList.setAdapter(suggestionsAdapter);
+
+        suggestionsList.addItemDecoration(new RecyclerView.ItemDecoration() {
+
+            private final int heightPx = Math.max(1, dpToPx(1));
+
+            @Override
+            public void onDrawOver(@NonNull android.graphics.Canvas c,
+                                   @NonNull RecyclerView parent,
+                                   @NonNull RecyclerView.State state) {
+
+                RecyclerView.Adapter<?> adapter = parent.getAdapter();
+                if (adapter == null) return;
+
+                int itemCount = adapter.getItemCount();
+                if (itemCount <= 1) return;
+
+                int left = parent.getPaddingLeft();
+                int right = parent.getWidth() - parent.getPaddingRight();
+
+                for (int i = 0; i < parent.getChildCount(); i++) {
+                    View child = parent.getChildAt(i);
+                    int pos = parent.getChildAdapterPosition(child);
+                    if (pos == RecyclerView.NO_POSITION) continue;
+
+                    // Skip last adapter row (no divider below it)
+                    if (pos >= itemCount - 1) continue;
+
+                    float top = child.getBottom();
+                    float bottom = top + heightPx;
+
+                    // divider color theme-correct
+                    android.graphics.Paint p = new android.graphics.Paint();
+                    p.setStyle(android.graphics.Paint.Style.FILL);
+
+                    int dividerColor = com.google.android.material.color.MaterialColors.getColor(
+                            parent,
+                            com.google.android.material.R.attr.colorOutlineVariant,
+                            0x33000000
+                    );
+
+                    p.setColor(dividerColor);
+
+                    c.drawRect(left, top, right, bottom, p);
+                }
+            }
+        });
+
+        input.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) {
+                hideSuggestions();
+                return;
+            }
+
+            String text = (input.getText() == null) ? "" : input.getText().toString().trim();
+            if (text.isEmpty()) {
+                // Empty query → show recent search history suggestions immediately
+                viewModel.fetchSuggestions("");
+                if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
+            }
+        });
     }
 
     // =====================
@@ -988,6 +1164,7 @@ public class MainActivity extends AppCompatActivity
         });
 
         viewModel.getSuggestionsLiveData().observe(this, list -> {
+
             boolean has = list != null && !list.isEmpty();
             if (has) {
                 suggestionsAdapter.submit(list);
@@ -995,6 +1172,19 @@ public class MainActivity extends AppCompatActivity
             } else {
                 suggestionsAdapter.clear();
                 if (suggestionsList != null) suggestionsList.setVisibility(View.GONE);
+            }
+        });
+
+        viewModel.getRecentSearchQueries().observe(this, history -> {
+
+            // Only refresh the suggestions surface if the user is currently in the search box with an empty query.
+            if (input == null) return;
+
+            boolean focused = input.hasFocus();
+            String text = (input.getText() == null) ? "" : input.getText().toString().trim();
+
+            if (focused && text.isEmpty()) {
+                viewModel.fetchSuggestions("");
             }
         });
 
@@ -1013,6 +1203,26 @@ public class MainActivity extends AppCompatActivity
     // =====================
 
     private void selectNavIndex(int navIndex, boolean reselected) {
+
+        boolean restoringSearchState = restoringFromRotation && isInSearchMode();
+
+        // Navigation implies leaving the search field / suggestions context.
+        // Keep state (empty/search) intact, just dismiss the overlay.
+        if (!restoringSearchState) {
+            hideSuggestions();
+        }
+
+        // If we're in SEARCH and the user navigates to a browse tab, fully exit search UI + mode.
+        if (!restoringSearchState && isInSearchMode() && navIndex <= NAV_NEW) {
+            exitSearchUiAndMode();
+        }
+
+        // Defensive: if we're moving into browse, the pill should never retain stale text.
+        if (!restoringSearchState && navIndex <= NAV_NEW) {
+            clearSearchBarUi();
+        }
+
+        if (input != null) input.clearFocus();
 
         selectedNavIndex = navIndex;
 
@@ -1256,6 +1466,32 @@ public class MainActivity extends AppCompatActivity
         restoreAllMainTabTitles();
         restoreAllModeTabTitles();
 
+        // Landscape (unified tabs): restore baseline titles before applying "Search"
+        if (unifiedTabs != null) {
+            for (int i = 0; i < unifiedTabs.getTabCount(); i++) {
+                TabLayout.Tab t = unifiedTabs.getTabAt(i);
+                if (t == null) continue;
+
+                switch (i) {
+                    case NAV_DISCOVER:
+                        t.setText("Discover");
+                        break;
+                    case NAV_POPULAR:
+                        t.setText("Popular");
+                        break;
+                    case NAV_NEW:
+                        t.setText("New");
+                        break;
+                    case NAV_FAVORITES:
+                        t.setText("Favorites");
+                        break;
+                    case NAV_FILTER:
+                        t.setText("Movie Filter");
+                        break;
+                }
+            }
+        }
+
         if (!isInSearchMode()) return;
 
         if (mainTabs != null) {
@@ -1270,6 +1506,14 @@ public class MainActivity extends AppCompatActivity
             int selectedPos = modeTabs.getSelectedTabPosition();
             if (selectedPos >= 0 && selectedPos < modeTabs.getTabCount()) {
                 TabLayout.Tab t = modeTabs.getTabAt(selectedPos);
+                if (t != null) t.setText("Search");
+            }
+        }
+
+        if (unifiedTabs != null) {
+            int selectedPos = unifiedTabs.getSelectedTabPosition();
+            if (selectedPos >= 0 && selectedPos < unifiedTabs.getTabCount()) {
+                TabLayout.Tab t = unifiedTabs.getTabAt(selectedPos);
                 if (t != null) t.setText("Search");
             }
         }
@@ -1865,6 +2109,21 @@ public class MainActivity extends AppCompatActivity
     }
 
     // --- Misc ---
+
+    private boolean isRawTouchInsideView(@NonNull MotionEvent e, @Nullable View v) {
+        if (v == null) return false;
+
+        int[] loc = new int[2];
+        v.getLocationOnScreen(loc);
+
+        float x = e.getRawX();
+        float y = e.getRawY();
+
+        return x >= loc[0]
+                && x <= loc[0] + v.getWidth()
+                && y >= loc[1]
+                && y <= loc[1] + v.getHeight();
+    }
 
     private int dpToPx(int dp) {
         float d = getResources().getDisplayMetrics().density;

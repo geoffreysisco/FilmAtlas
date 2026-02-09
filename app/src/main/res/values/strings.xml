@@ -23,4 +23,5 @@
     <string name="share">Share</string>
     <string name="open_filter">open filter</string>
     <string name="refresh_discover">refresh FAB for discover tab</string>
+    <string name="remove_search_history">remove search history</string>
 </resources>

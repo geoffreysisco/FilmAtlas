@@ -3,6 +3,7 @@ package com.example.filmatlas.view;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -18,6 +19,7 @@ public class SearchSuggestionsAdapter extends RecyclerView.Adapter<SearchSuggest
 
     public interface Callback {
         void onSuggestionClicked(@NonNull Movie movie);
+        void onSuggestionRemoveClicked(@NonNull Movie movie);
     }
 
     private final Callback callback;
@@ -50,11 +52,21 @@ public class SearchSuggestionsAdapter extends RecyclerView.Adapter<SearchSuggest
     public void onBindViewHolder(@NonNull VH holder, int position) {
         Movie m = items.get(position);
 
-        String title = (m.getTitle() == null) ? "" : m.getTitle();
-        String year = (m.getReleaseYear() == null) ? "" : m.getReleaseYear();
+        String title = (m.getTitle() == null) ? "" : m.getTitle().trim();
+        String year = (m.getReleaseYear() == null) ? "" : m.getReleaseYear().trim();
 
-        String label = year.isEmpty() ? title : (title + " (" + year + ")");
+        boolean isHistorySuggestion = year.isEmpty();
+
+        String label = isHistorySuggestion ? title : (title + " (" + year + ")");
         holder.title.setText(label);
+
+        // Remove icon: only visible for history entries.
+        holder.remove.setVisibility(isHistorySuggestion ? View.VISIBLE : View.GONE);
+
+        holder.remove.setOnClickListener(v -> {
+            if (!isHistorySuggestion) return;
+            callback.onSuggestionRemoveClicked(m);
+        });
 
         holder.itemView.setOnClickListener(v -> callback.onSuggestionClicked(m));
     }
@@ -66,10 +78,12 @@ public class SearchSuggestionsAdapter extends RecyclerView.Adapter<SearchSuggest
 
     static class VH extends RecyclerView.ViewHolder {
         final TextView title;
+        final ImageView remove;
 
         VH(@NonNull View itemView) {
             super(itemView);
             title = itemView.findViewById(R.id.tv_suggestion_title);
+            remove = itemView.findViewById(R.id.iv_suggestion_remove);
         }
     }
 }
