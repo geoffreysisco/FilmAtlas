@@ -964,10 +964,12 @@ public class MainActivity extends AppCompatActivity
 
             @Override
             public void onTabUnselected(TabLayout.Tab tab) {
+                if (restoringTabs) return;
             }
 
             @Override
             public void onTabReselected(TabLayout.Tab tab) {
+                if (restoringTabs) return;
 
                 if (isInSearchMode()) {
                     refreshSearchAndHideSuggestions();
