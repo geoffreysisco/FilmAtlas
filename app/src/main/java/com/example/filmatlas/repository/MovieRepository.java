@@ -14,8 +14,11 @@ import com.example.filmatlas.serviceapi.MovieApiService;
 import com.example.filmatlas.serviceapi.RetrofitInstance;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 
 import retrofit2.Call;
 import retrofit2.Callback;
@@ -32,7 +35,8 @@ public class MovieRepository {
     // =====================
 
     private static final int MAX_EMPTY_PAGE_SKIPS = 5;
-    private static final int RANDOM_START_PAGE_MAX = 200;
+    private static final int DISCOVER_RANDOM_START_PAGE_MAX = 500;
+    private static final int DISCOVER_BATCH_TARGET_COUNT = 10;
 
     // =====================
     // App Context
@@ -58,6 +62,9 @@ public class MovieRepository {
     private final MutableLiveData<List<Movie>> browseLiveData = new MutableLiveData<>();
 
     private int movieFilteredEmptySkips = 0;
+    private int discoverEmptySkips = 0;
+    private int discoverDedupeEmptySkips = 0;
+
     private int browseCurrentPage = 1;
     private int browseTotalPages = Integer.MAX_VALUE;
     private boolean browseLoading = false;
@@ -65,6 +72,12 @@ public class MovieRepository {
 
 
     private int discoverStartPage = 1;
+    private final List<Movie> discoverBatchBuffer = new ArrayList<>();
+    private boolean discoverBatchFillInProgress = false;
+    private final Set<Integer> discoverSeenMovieIds = new HashSet<>();
+
+    // Random
+    private final Random random = new Random();
 
     // =====================
     // Search State
@@ -137,10 +150,19 @@ public class MovieRepository {
 
     public void loadFirstPageDiscoverRandom(@NonNull LoadingCallback cb) {
         setBrowseMode(BrowseMode.DISCOVER_RANDOM);
-        discoverStartPage = 1 + new Random().nextInt(RANDOM_START_PAGE_MAX);
+        browseLoading = false;
+        isPagingBrowse = false;
+        discoverStartPage = 1 + random.nextInt(DISCOVER_RANDOM_START_PAGE_MAX);
         browseCurrentPage = discoverStartPage;
         browseMovies.clear();
-        browseLiveData.setValue(new ArrayList<>());
+        // Do not emit an empty list here; it causes a visible "flash" before new results publish.
+        discoverBatchBuffer.clear();
+        discoverBatchFillInProgress = false;
+        discoverSeenMovieIds.clear();
+        discoverEmptySkips = 0;
+        discoverDedupeEmptySkips = 0;
+        movieFilteredEmptySkips = 0;
+        browseTotalPages = Integer.MAX_VALUE;
         loadNextPageBrowse(cb);
     }
 
@@ -160,6 +182,10 @@ public class MovieRepository {
 
     public void loadNextPageBrowse(@NonNull LoadingCallback cb) {
         if (isPagingBrowse) return;
+
+        if (browseMode == BrowseMode.DISCOVER_RANDOM && discoverBatchFillInProgress) {
+            return;
+        }
 
         isPagingBrowse = true;
 
@@ -189,7 +215,13 @@ public class MovieRepository {
                 browseLoading = false;
                 setLoading(false);
                 isPagingBrowse = false;
-                cb.onDone();
+
+                // For DISCOVER_RANDOM, we may chain additional fetches to fill a batch.
+                // Only signal "done" after we actually publish results or stop retrying.
+                boolean shouldDeferDoneCallback = (browseMode == BrowseMode.DISCOVER_RANDOM);
+                if (!shouldDeferDoneCallback) {
+                    cb.onDone();
+                }
 
                 if (!response.isSuccessful() || response.body() == null) return;
 
@@ -200,22 +232,174 @@ public class MovieRepository {
 
                 List<Movie> filtered = filterOutMissingPosters(body.getMovies());
 
-                if (filtered.isEmpty()
-                        && browseMode == BrowseMode.MOVIES_FILTERED
-                        && browseCurrentPage < browseTotalPages
-                        && movieFilteredEmptySkips < MAX_EMPTY_PAGE_SKIPS) {
+                if (browseMode == BrowseMode.DISCOVER_RANDOM) {
+                    List<Movie> deduped = new ArrayList<>();
 
-                    movieFilteredEmptySkips++;
-                    browseCurrentPage++;
+                    for (Movie m : filtered) {
+                        if (m == null) continue;
+
+                        Integer id = m.getId();
+                        if (id == null) continue;
+
+                        if (discoverSeenMovieIds.add(id)) {
+                            deduped.add(m);
+                        }
+                    }
+
+                    filtered = deduped;
+                }
+
+                if (browseMode == BrowseMode.DISCOVER_RANDOM) {
+                    Collections.shuffle(filtered);
+                }
+
+                boolean isFilteredMode = (browseMode == BrowseMode.MOVIES_FILTERED);
+
+                if (browseMode == BrowseMode.DISCOVER_RANDOM && filtered.isEmpty()
+                        && browseCurrentPage < browseTotalPages
+                        && discoverEmptySkips < MAX_EMPTY_PAGE_SKIPS) {
+
+                    discoverDedupeEmptySkips++;
+
+                    int maxPage = Math.min(browseTotalPages, DISCOVER_RANDOM_START_PAGE_MAX);
+
+                    // Jump to a different random page before retrying, otherwise we can loop on the same empty page.
+                    int nextPage = browseCurrentPage;
+                    for (int i = 0; i < 3; i++) {
+                        int candidate = 1 + random.nextInt(maxPage);
+                        if (candidate != browseCurrentPage) {
+                            nextPage = candidate;
+                            break;
+                        }
+                    }
+                    browseCurrentPage = nextPage;
+
+                    loadNextPageBrowse(cb);
+                    return;
+                }
+
+                if (browseMode == BrowseMode.DISCOVER_RANDOM && filtered.isEmpty()) {
+
+                    // If we buffered anything during this paging cycle, publish it
+                    // so RecyclerView never hits a "fake end" bounce.
+                    if (!discoverBatchBuffer.isEmpty()) {
+                        browseMovies.addAll(discoverBatchBuffer);
+                        browseLiveData.setValue(new ArrayList<>(browseMovies));
+                    }
+
+                    discoverBatchFillInProgress = false;
+                    discoverBatchBuffer.clear();
+                    discoverEmptySkips = 0;
+                    discoverDedupeEmptySkips = 0;
+
+                    cb.onDone();
+                    return;
+                }
+
+                boolean shouldSkipEmptyPage =
+                        filtered.isEmpty()
+                                && browseCurrentPage < browseTotalPages
+                                && (
+                                (isFilteredMode && movieFilteredEmptySkips < MAX_EMPTY_PAGE_SKIPS)
+                                        || (!isFilteredMode && discoverEmptySkips < MAX_EMPTY_PAGE_SKIPS)
+                        );
+
+                if (shouldSkipEmptyPage) {
+                    if (isFilteredMode) {
+                        movieFilteredEmptySkips++;
+                        browseCurrentPage++;
+                        loadNextPageBrowse(cb);
+                        return;
+                    }
+
+                    // DISCOVER_RANDOM (and other non-filtered browse modes) should not "++" the page here.
+                    // Discover already selects next pages randomly in its retry / next-page logic.
+                    discoverEmptySkips++;
+
+                    int maxPage = Math.min(browseTotalPages, DISCOVER_RANDOM_START_PAGE_MAX);
+
+                    int nextPage = browseCurrentPage;
+                    for (int i = 0; i < 3; i++) {
+                        int candidate = 1 + random.nextInt(maxPage)
+                                ;
+                        if (candidate != browseCurrentPage) {
+                            nextPage = candidate;
+                            break;
+                        }
+                    }
+                    browseCurrentPage = nextPage;
+
                     loadNextPageBrowse(cb);
                     return;
                 }
 
                 movieFilteredEmptySkips = 0;
+                discoverEmptySkips = 0;
+                discoverDedupeEmptySkips = 0;
 
-                browseMovies.addAll(filtered);
-                browseLiveData.setValue(new ArrayList<>(browseMovies));
-                browseCurrentPage++;
+                if (browseMode == BrowseMode.DISCOVER_RANDOM) {
+
+                    // Start/continue filling a mixed batch (pulled from multiple random pages).
+                    if (!discoverBatchFillInProgress) {
+                        discoverBatchFillInProgress = true;
+                        discoverBatchBuffer.clear();
+                    }
+
+                    int remaining = DISCOVER_BATCH_TARGET_COUNT - discoverBatchBuffer.size();
+                    int take = Math.min(remaining, filtered.size());
+
+                    for (int i = 0; i < take; i++) {
+                        discoverBatchBuffer.add(filtered.get(i));
+                    }
+
+                    if (discoverBatchBuffer.size() >= DISCOVER_BATCH_TARGET_COUNT) {
+                        browseMovies.addAll(discoverBatchBuffer);
+                        browseLiveData.setValue(new ArrayList<>(browseMovies));
+                        discoverBatchFillInProgress = false;
+                        discoverBatchBuffer.clear();
+                        cb.onDone();
+                    } else {
+                        // Not enough yet — immediately fetch another random page to mix into the same batch.
+                        int maxPage = Math.min(browseTotalPages, DISCOVER_RANDOM_START_PAGE_MAX);
+
+                        int nextPage = browseCurrentPage;
+                        for (int i = 0; i < 3; i++) {
+                            int candidate = 1 + random.nextInt(maxPage);
+                            if (candidate != browseCurrentPage) {
+                                nextPage = candidate;
+                                break;
+                            }
+                        }
+                        browseCurrentPage = nextPage;
+
+                        loadNextPageBrowse(cb);
+                        return;
+                    }
+
+                } else {
+                    browseMovies.addAll(filtered);
+                    browseLiveData.setValue(new ArrayList<>(browseMovies));
+                }
+
+                if (browseMode == BrowseMode.DISCOVER_RANDOM && browseTotalPages > 1) {
+
+                    int maxPage = Math.min(browseTotalPages, DISCOVER_RANDOM_START_PAGE_MAX);
+
+                    // Pick a new random page for the next fetch (avoid re-picking the same page if possible).
+                    int nextPage = browseCurrentPage;
+                    for (int i = 0; i < 3; i++) {
+                        int candidate = 1 + random.nextInt(maxPage);
+                        if (candidate != browseCurrentPage) {
+                            nextPage = candidate;
+                            break;
+                        }
+                    }
+
+                    browseCurrentPage = nextPage;
+
+                } else {
+                    browseCurrentPage++;
+                }
             }
 
             @Override
@@ -223,6 +407,16 @@ public class MovieRepository {
                 browseLoading = false;
                 setLoading(false);
                 isPagingBrowse = false;
+
+                // If Discover already has results, don't escalate a rare paging failure into a full error state.
+                if (browseMode == BrowseMode.DISCOVER_RANDOM && !browseMovies.isEmpty()) {
+                    discoverBatchFillInProgress = false;
+                    discoverBatchBuffer.clear();
+                    discoverEmptySkips = 0;
+                    cb.onDone();
+                    return;
+                }
+
                 cb.onDone();
             }
         });
@@ -230,6 +424,7 @@ public class MovieRepository {
 
     private void loadFirstPageBrowseInternal(@NonNull LoadingCallback cb) {
         browseMovies.clear();
+        discoverEmptySkips = 0;
         browseLiveData.setValue(new ArrayList<>());
         browseCurrentPage = 1;
         browseTotalPages = Integer.MAX_VALUE;
@@ -269,13 +464,22 @@ public class MovieRepository {
         }
 
         return api.discoverMoviesByRating(
-                apiKey, "vote_average.desc", 300,
+                apiKey, "popularity.desc", 300,
                 "1980-01-01", getTodayDate(), "99",
                 page, null, null, null, null
         );
     }
 
     private void setBrowseMode(@NonNull BrowseMode mode) {
+
+        boolean leavingDiscover = (browseMode == BrowseMode.DISCOVER_RANDOM && mode != BrowseMode.DISCOVER_RANDOM);
+        if (leavingDiscover) {
+            discoverBatchFillInProgress = false;
+            discoverBatchBuffer.clear();
+            discoverSeenMovieIds.clear();
+            discoverEmptySkips = 0;
+        }
+
         browseMode = mode;
         browseLoading = false;
         browseCurrentPage = 1;
