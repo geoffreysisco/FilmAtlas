@@ -1021,8 +1021,6 @@ public class MainActivity extends AppCompatActivity
 
                 if (restoringTabs) return;
 
-                exitSearchUiAndMode();
-
                 int nav = tab.getPosition(); // unifiedTabs is already 0–4 in order
                 selectNavIndex(nav, false);
                 recordNavSelection(nav);
@@ -1308,6 +1306,7 @@ public class MainActivity extends AppCompatActivity
         }
 
         selectedTabIndex = tabIndex;
+        updateDiscoverRefreshFabVisibility();
         lastBrowseTabIndex = tabIndex;
 
         selectedNavIndex = mapBrowseTabToNavIndex(tabIndex);
@@ -1338,7 +1337,6 @@ public class MainActivity extends AppCompatActivity
 
         applyMainTabTitles();
         updateFilterFabVisibility();
-        updateDiscoverRefreshFabVisibility();
     }
 
     private void enterFavoritesMode() {
@@ -1821,6 +1819,12 @@ public class MainActivity extends AppCompatActivity
         return NAV_DISCOVER;
     }
 
+    private int mapNavIndexToBrowseTab(int navIndex) {
+        if (navIndex == NAV_POPULAR) return TAB_POPULAR;
+        if (navIndex == NAV_NEW) return TAB_NEW;
+        return TAB_DISCOVER;
+    }
+
     // --- Unified navigation back stack (0–4) ---
 
     private void recordNavSelection(int navIndex) {
@@ -1932,10 +1936,27 @@ public class MainActivity extends AppCompatActivity
     private void updateDiscoverRefreshFabVisibility() {
         if (binding == null || binding.fabRefreshDiscover == null) return;
 
-        boolean show =
-                (uiMode == UiMode.BROWSE)
-                        && !isInSearchMode()
-                        && (selectedTabIndex == TAB_DISCOVER);
+        // Prefer the tab strip that is actually visible/active.
+        int effectiveTabIndex = selectedTabIndex;
+
+        // Landscape/unified: derive browse tab from the unified nav index.
+        if (unifiedTabs != null && unifiedTabs.getVisibility() == View.VISIBLE) {
+            int navPos = unifiedTabs.getSelectedTabPosition();
+            if (navPos >= 0 && navPos <= NAV_NEW) {
+                effectiveTabIndex = mapNavIndexToBrowseTab(navPos);
+            }
+        } else if (mainTabs != null && mainTabs.getVisibility() == View.VISIBLE) {
+            int pos = mainTabs.getSelectedTabPosition();
+            if (pos >= 0) {
+                effectiveTabIndex = pos;
+            }
+        }
+
+        final boolean isBrowse = (uiMode == UiMode.BROWSE);
+        final boolean inSearch = isInSearchMode();
+        final boolean isDiscoverTab = (effectiveTabIndex == TAB_DISCOVER);
+
+        final boolean show = isBrowse && !inSearch && isDiscoverTab;
 
         binding.fabRefreshDiscover.setVisibility(show ? View.VISIBLE : View.GONE);
     }
