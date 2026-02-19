@@ -75,8 +75,6 @@ public class MovieRepository {
     private final List<Movie> discoverBatchBuffer = new ArrayList<>();
     private boolean discoverBatchFillInProgress = false;
     private final Set<Integer> discoverSeenMovieIds = new HashSet<>();
-
-    // Random
     private final Random random = new Random();
 
     // =====================
