@@ -22,38 +22,20 @@ import retrofit2.Response;
 
 /**
  * Repository for movie search operations.
- * Owns search-related network calls and exposes results via LiveData.
+ * Owns search paging + suggestions networking and exposes results via LiveData.
  */
 public class SearchRepository {
 
-    // =====================
     // Callbacks
-    // =====================
-
-    /**
-     * Used by ViewModel to enforce UI policy (ex: history recording)
-     * while the repository owns paging and networking.
-     */
+    // Used by ViewModel to enforce UI policy (e.g., history recording) while repository owns paging/networking.
     public interface SearchPolicyCallback {
         void onFirstPageReturnedRealResults();
     }
 
-    // =====================
-    // App Context
-    // =====================
-
-    private final Application application;
-
-    // =====================
     // Service
-    // =====================
-
     private final MovieApiService movieApiService;
 
-    // =====================
     // Search Results State
-    // =====================
-
     private boolean searchLoading = false;
     private int searchCurrentPage = 1;
     private int searchTotalPages = Integer.MAX_VALUE;
@@ -65,34 +47,23 @@ public class SearchRepository {
 
     private final MutableLiveData<List<Movie>> searchLiveData = new MutableLiveData<>();
 
-    // =====================
     // Suggestions State (placeholders; wired later)
-    // =====================
-
     private final MutableLiveData<List<Movie>> suggestionsLiveData = new MutableLiveData<>();
+    private Call<MoviesResponse> suggestionsCall;
 
-    // =====================
     // Loading State
-    // =====================
-
     private final MutableLiveData<Boolean> loadingLiveData = new MutableLiveData<>(false);
 
-    // =====================
     // Constructor
-    // =====================
-
     public SearchRepository(@NonNull Application application) {
-        this.application = application;
         this.movieApiService = RetrofitInstance.getService();
 
+        // Initialize streams with empty lists to avoid null observers / first-render flashes.
         searchLiveData.setValue(new ArrayList<>());
         suggestionsLiveData.setValue(new ArrayList<>());
     }
 
-    // =====================
     // LiveData Streams
-    // =====================
-
     public LiveData<List<Movie>> getSearchLiveData() {
         return searchLiveData;
     }
@@ -105,10 +76,7 @@ public class SearchRepository {
         return loadingLiveData;
     }
 
-    // =====================
     // Search API (network-owned)
-    // =====================
-
     public void searchFirstPage(
             @NonNull String title,
             Integer year,
@@ -214,8 +182,59 @@ public class SearchRepository {
         loadingLiveData.postValue(false);
     }
 
+    // Suggestions (network-owned)
+    public void fetchSuggestions(@NonNull String raw) {
+        String q = (raw == null) ? "" : raw.trim();
+
+        cancelSuggestionsCall();
+
+        suggestionsCall = movieApiService.searchMoviesByTitle(
+                BuildConfig.TMDB_API_KEY,
+                q,
+                1,
+                false,
+                null
+        );
+
+        suggestionsCall.enqueue(new Callback<MoviesResponse>() {
+            @Override
+            public void onResponse(Call<MoviesResponse> call, Response<MoviesResponse> response) {
+                if (call.isCanceled()) return;
+
+                if (!response.isSuccessful() || response.body() == null) {
+                    suggestionsLiveData.setValue(new ArrayList<>());
+                    return;
+                }
+
+                List<Movie> incoming = response.body().getMovies();
+                if (incoming == null) incoming = new ArrayList<>();
+
+                int limit = Math.min(8, incoming.size());
+                suggestionsLiveData.setValue(new ArrayList<>(incoming.subList(0, limit)));
+            }
+
+            @Override
+            public void onFailure(Call<MoviesResponse> call, Throwable t) {
+                if (call.isCanceled()) return;
+                suggestionsLiveData.setValue(new ArrayList<>());
+            }
+        });
+    }
+
+    public void clearSuggestions() {
+        cancelSuggestionsCall();
+        suggestionsLiveData.setValue(new ArrayList<>());
+    }
+
+    public void cancelSuggestionsCall() {
+        if (suggestionsCall != null) {
+            suggestionsCall.cancel();
+            suggestionsCall = null;
+        }
+    }
+
     // =====================
-    // Internal helpers
+    // Helpers
     // =====================
 
     private void resetSearchPagingInternal() {

@@ -30,24 +30,15 @@ import retrofit2.Response;
  */
 public class MovieRepository {
 
-    // =====================
     // Constants
-    // =====================
-
     private static final int MAX_EMPTY_PAGE_SKIPS = 5;
     private static final int DISCOVER_RANDOM_START_PAGE_MAX = 500;
     private static final int DISCOVER_BATCH_TARGET_COUNT = 10;
 
-    // =====================
     // App Context
-    // =====================
-
     private final Application application;
 
-    // =====================
     // Browse State
-    // =====================
-
     private enum BrowseMode {
         DISCOVER_RANDOM,
         MOVIES_FILTERED,
@@ -70,72 +61,37 @@ public class MovieRepository {
     private boolean browseLoading = false;
     private boolean isPagingBrowse = false;
 
-
     private int discoverStartPage = 1;
     private final List<Movie> discoverBatchBuffer = new ArrayList<>();
     private boolean discoverBatchFillInProgress = false;
     private final Set<Integer> discoverSeenMovieIds = new HashSet<>();
     private final Random random = new Random();
 
-    // =====================
-    // Search State
-    // =====================
 
-    private final ArrayList<Movie> searchMovies = new ArrayList<>();
-    private final MutableLiveData<List<Movie>> searchLiveData = new MutableLiveData<>();
-
-    private int searchCurrentPage = 1;
-    private int searchTotalPages = Integer.MAX_VALUE;
-    private boolean searchLoading = false;
-
-    private String lastSearchQuery = "";
-    private Integer lastSearchYear = null;
-    private int searchEmptyPageSkips = 0;
-
-    // =====================
-    // Loading State
-    // =====================
-
+    // Loading Stat
     private final MutableLiveData<Boolean> loadingLiveData = new MutableLiveData<>(false);
 
-    // =====================
     // Callbacks
-    // =====================
-
     public interface LoadingCallback {
         void onDone();
     }
 
-    // =====================
     // Constructor
-    // =====================
-
     public MovieRepository(@NonNull Application application) {
         this.application = application;
         browseLiveData.setValue(new ArrayList<>());
-        searchLiveData.setValue(new ArrayList<>());
     }
 
-    // =====================
     // LiveData Streams
-    // =====================
-
     public LiveData<List<Movie>> getBrowseLiveData() {
         return browseLiveData;
-    }
-
-    public LiveData<List<Movie>> getSearchLiveData() {
-        return searchLiveData;
     }
 
     public LiveData<Boolean> getLoadingLiveData() {
         return loadingLiveData;
     }
 
-    // =====================
     // Browse API
-    // =====================
-
     public void loadFirstPagePopular(@NonNull LoadingCallback cb) {
         setBrowseMode(BrowseMode.MOVIES_POPULAR);
         loadFirstPageBrowseInternal(cb);

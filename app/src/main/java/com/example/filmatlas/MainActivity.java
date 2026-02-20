@@ -51,11 +51,11 @@ import java.util.List;
 
 /**
  * Main UI controller for FilmAtlas.
- * <p>
+ *
  * This Activity hosts the primary movie grid and coordinates all top-level UI
  * behavior, including browse tabs, favorites, movie filtering, search, swipe
  * navigation, empty states, and system UI integration.
- * <p>
+ *
  * It acts as the orchestration layer between view components and
  * MainActivityViewModel, handling user interaction, visual state restoration,
  * and mode transitions without owning data or business logic.
@@ -415,7 +415,7 @@ public class MainActivity extends AppCompatActivity
                 updateFabVisibility(dy);
 
                 if (dy <= 0) return;
-                if (isInSearchMode()) return;
+                // Allow paging in SEARCH too (ViewModel routes loadMore() based on DisplayMode)
 
                 // Allow paging in:
                 // - Browse mode (Discover/Popular/New)
@@ -2161,6 +2161,4 @@ public class MainActivity extends AppCompatActivity
         return getResources().getConfiguration().orientation
                 == Configuration.ORIENTATION_LANDSCAPE;
     }
-
-    // --- DEBUG ---
 }

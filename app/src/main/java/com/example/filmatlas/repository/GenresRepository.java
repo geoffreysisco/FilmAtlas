@@ -5,6 +5,7 @@ import com.example.filmatlas.model.GenreCacheEntity;
 import com.example.filmatlas.network.GenreDto;
 import com.example.filmatlas.network.GenresResponse;
 import com.example.filmatlas.serviceapi.MovieApiService;
+import com.example.filmatlas.serviceapi.RetrofitInstance;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,9 +22,9 @@ public class GenresRepository {
     private final MovieApiService api;
     private final Executor dbExecutor = Executors.newSingleThreadExecutor();
 
-    public GenresRepository(AppDatabase db, MovieApiService api) {
+    public GenresRepository(AppDatabase db) {
         this.db = db;
-        this.api = api;
+        this.api = RetrofitInstance.getService();
     }
 
     public void refreshGenres(String apiKey) {
