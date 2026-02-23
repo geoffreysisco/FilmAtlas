@@ -10,6 +10,7 @@ import android.os.Looper;
 import android.os.Parcelable;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.util.Log;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
@@ -73,6 +74,7 @@ public class MainActivity extends AppCompatActivity
     private static final String KEY_NAV_BACK_STACK = "nav_back_stack";
     private static final String KEY_WAS_IN_SEARCH_MODE = "was_in_search_mode";
     private static final String KEY_SEARCH_PILL_TEXT = "search_pill_text";
+    private static final String KEY_WAS_SEARCH_PILL_FOCUSED = "was_search_pill_focused";
 
     // Unified index constants
     private static final int NAV_DISCOVER = 0;
@@ -222,15 +224,21 @@ public class MainActivity extends AppCompatActivity
 
                 viewModel.restoreSearchUiStateOnly();
 
+                boolean wasFocused = savedInstanceState.getBoolean(KEY_WAS_SEARCH_PILL_FOCUSED, false);
+
                 if (input != null) {
                     input.setText(pillText);
                     input.setSelection(pillText.length());
-                    input.requestFocus();
+
+                    if (wasFocused) {
+                        input.requestFocus();
+                        viewModel.fetchSuggestions(""); // show history list again
+                        if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
+                    } else {
+                        input.clearFocus();
+                        if (suggestionsList != null) suggestionsList.setVisibility(View.GONE);
+                    }
                 }
-
-                viewModel.fetchSuggestions(""); // show history list again
-
-                if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
 
                 restoringSearchUi = false;  // ← stays here
             }
@@ -367,6 +375,9 @@ public class MainActivity extends AppCompatActivity
                 ? ""
                 : input.getText().toString();
         outState.putString(KEY_SEARCH_PILL_TEXT, pillText);
+
+        boolean wasFocused = (input != null && input.hasFocus());
+        outState.putBoolean(KEY_WAS_SEARCH_PILL_FOCUSED, wasFocused);
     }
 
     @Override
