@@ -10,7 +10,7 @@ import android.os.Looper;
 import android.os.Parcelable;
 import android.text.Editable;
 import android.text.TextWatcher;
-import android.util.Log;
+
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
@@ -96,6 +96,8 @@ public class MainActivity extends AppCompatActivity
     private static final int SWIPE_EDGE_GUARD_DP = 32;
     private static final int SWIPE_MIN_VELOCITY_DP = 650;
 
+    private static final String TAG = "MainActivity";
+
     private enum UiMode {
         BROWSE,
         FAVORITES,
@@ -105,7 +107,6 @@ public class MainActivity extends AppCompatActivity
     // =====================
     // Fields
     // =====================
-
     private ActivityMainBinding binding;
     private MainActivityViewModel viewModel;
     private MovieAdapter movieAdapter;
@@ -1033,6 +1034,11 @@ public class MainActivity extends AppCompatActivity
                 if (restoringTabs) return;
 
                 int nav = tab.getPosition(); // unifiedTabs is already 0–4 in order
+
+                if (nav == NAV_FILTER && isInSearchMode()) {
+                    exitSearchUiAndMode();
+                }
+
                 selectNavIndex(nav, false);
                 recordNavSelection(nav);
 
@@ -1402,6 +1408,14 @@ public class MainActivity extends AppCompatActivity
 
     private void enterFilterMode(boolean showBottomSheet, boolean callViewModel) {
 
+        // Safety: pendingRvState is only meaningful for rotation restore of the SAME nav.
+        // If we’re not restoring from rotation and this snapshot belongs to another nav,
+        // clear it so it can’t suppress/filter UI behavior.
+        if (!restoringFromRotation && pendingRvState != null && pendingRvNavIndex != NAV_FILTER) {
+            pendingRvState = null;
+            pendingRvNavIndex = -1;
+        }
+
         // Remember where we came from (for Back behavior).
         if (mainTabs != null) {
             int pos = mainTabs.getSelectedTabPosition();
@@ -1432,14 +1446,19 @@ public class MainActivity extends AppCompatActivity
             viewModel.enterMovieFilterMode();
         }
 
-        // Rotation restore guard: never force-open the bottom sheet.
-        // (showBottomSheet is already false on restore; this prevents any accidental reopen paths.)
-        if (pendingRvState != null) {
+        // Only treat pendingRvState as a rotation-restore guard
+        boolean isRotationRestoreForThisNav =
+                restoringFromRotation
+                        && pendingRvState != null
+                        && pendingRvNavIndex == NAV_FILTER;
+
+        // Rotation restore guard: never force-open the bottom sheet
+        if (isRotationRestoreForThisNav) {
             showBottomSheet = false;
         }
 
-        // Rotation restore guard: don't show filter empty state until data re-binds.
-        if (pendingRvState != null) {
+        // Rotation restore guard: don't show filter empty state until data re-binds
+        if (isRotationRestoreForThisNav) {
             hideFilterEmptyState();
         } else {
             if (!viewModel.isMovieFilterApplied()) {
