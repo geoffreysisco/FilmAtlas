@@ -221,6 +221,14 @@ public class MainActivityViewModel extends AndroidViewModel {
         return movieFilterApplied;
     }
 
+    // Restore-only: used by Activity state restore when we already have filter results on screen.
+    public void restoreMovieFilterApplied(boolean applied) {
+        movieFilterApplied = applied;
+        if (applied) {
+            displayMode.setValue(DisplayMode.FILTER);
+        }
+    }
+
     // Called when UI enters filter mode (before Apply); clears repo list to prevent browse flash under filter UI.
     public void enterMovieFilterMode() {
         exitSearchModeInternal();

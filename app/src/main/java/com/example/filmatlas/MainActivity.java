@@ -2,15 +2,16 @@ package com.example.filmatlas;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Parcelable;
 import android.text.Editable;
 import android.text.TextWatcher;
-
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
@@ -75,6 +76,8 @@ public class MainActivity extends AppCompatActivity
     private static final String KEY_WAS_IN_SEARCH_MODE = "was_in_search_mode";
     private static final String KEY_SEARCH_PILL_TEXT = "search_pill_text";
     private static final String KEY_WAS_SEARCH_PILL_FOCUSED = "was_search_pill_focused";
+    private static final String KEY_FILTER_MOVIES_JSON = "filter_movies_json";
+    private static final String KEY_FILTER_APPLIED = "key_filter_applied";
 
     // Unified index constants
     private static final int NAV_DISCOVER = 0;
@@ -96,8 +99,6 @@ public class MainActivity extends AppCompatActivity
     private static final int SWIPE_EDGE_GUARD_DP = 32;
     private static final int SWIPE_MIN_VELOCITY_DP = 650;
 
-    private static final String TAG = "MainActivity";
-
     private enum UiMode {
         BROWSE,
         FAVORITES,
@@ -116,7 +117,6 @@ public class MainActivity extends AppCompatActivity
     private final Handler searchHandler = new Handler(Looper.getMainLooper());
     private boolean suppressSuggestionFetch = false;
     private boolean restoringSearchUi = false;
-    private boolean skipSuggestionFetchBecauseRotation = false;
     private Runnable searchSuggestionsRunnable;
     private EditText input;
     private ImageView clear;
@@ -148,6 +148,8 @@ public class MainActivity extends AppCompatActivity
 
     private GestureDetector swipeDetector;
     private boolean restoringFromRotation = false;
+    private boolean suppressFilterObserverOnceAfterStateRestore = false;
+    private boolean didResumeRestore = false;
 
     // =====================
     // Lifecycle
@@ -157,10 +159,61 @@ public class MainActivity extends AppCompatActivity
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        Intent i = getIntent();
+        String action = (i == null) ? "null" : i.getAction();
+        Uri data = (i == null) ? null : i.getData();
+
         EdgeToEdge.enable(this);
 
         binding = DataBindingUtil.setContentView(this, R.layout.activity_main);
         viewModel = new ViewModelProvider(this).get(MainActivityViewModel.class);
+
+        Intent i2 = getIntent();
+        String action2 = (i2 == null) ? null : i2.getAction();
+        boolean isNormalLauncherStart = Intent.ACTION_MAIN.equals(action2);
+
+        // Resume restore (process death / external return):
+        // Only resume to Filter if we have a list snapshot; otherwise fall back to normal startup (Discover).
+        if (savedInstanceState == null && !isNormalLauncherStart) {
+
+            SharedPreferences sp = getSharedPreferences("filmatlas_ui", MODE_PRIVATE);
+
+            int resumeNav = sp.getInt("resume_nav", -1);
+            int resumeFirst = sp.getInt("resume_first", 0);
+            boolean resumeFilterApplied = sp.getBoolean("resume_filter_applied", false);
+
+            String resumeJson = sp.getString("resume_filter_movies_json", "");
+            boolean hasResumeJson = (resumeJson != null && !resumeJson.trim().isEmpty());
+
+            if (resumeNav == NAV_FILTER && resumeFilterApplied && hasResumeJson) {
+
+                didResumeRestore = true;
+
+                // Enter filter UI mode without opening bottom sheet / without clearing list.
+                selectNavIndex(NAV_FILTER, false);
+
+                // Restore VM applied flag so paging logic is consistent.
+                viewModel.restoreMovieFilterApplied(true);
+
+                try {
+                    java.lang.reflect.Type type =
+                            new com.google.gson.reflect.TypeToken<java.util.List<com.example.filmatlas.model.Movie>>() {}.getType();
+
+                    java.util.List<com.example.filmatlas.model.Movie> restored =
+                            new com.google.gson.Gson().fromJson(resumeJson, type);
+
+                    if (restored != null && !restored.isEmpty()) {
+                        movieAdapter.submitList(restored, () ->
+                                binding.recyclerView.post(() ->
+                                        gridLayoutManager.scrollToPosition(Math.max(0, resumeFirst))
+                                )
+                        );
+                    }
+                } catch (Exception ignored) {
+                    // Ignore restore errors — resume state is non-critical
+                }
+            }
+        }
 
         mainTabs = binding.mainTabs;
         modeTabs = binding.modeTabs;
@@ -170,8 +223,6 @@ public class MainActivity extends AppCompatActivity
         if (getSupportActionBar() != null) {
             getSupportActionBar().setDisplayShowTitleEnabled(false);
         }
-
-        skipSuggestionFetchBecauseRotation = (savedInstanceState != null);
 
         restoringFromRotation = (savedInstanceState != null);
 
@@ -203,6 +254,56 @@ public class MainActivity extends AppCompatActivity
 
         setupSystemInsets();
         setupRecycler();
+
+        if (savedInstanceState != null) {
+            String json = savedInstanceState.getString(KEY_FILTER_MOVIES_JSON);
+
+            boolean restoredFilterApplied = savedInstanceState.getBoolean(KEY_FILTER_APPLIED, false);
+
+            if (json != null && !json.trim().isEmpty()) {
+                try {
+                    java.lang.reflect.Type type =
+                            new com.google.gson.reflect.TypeToken<java.util.List<com.example.filmatlas.model.Movie>>() {}.getType();
+                    java.util.List<com.example.filmatlas.model.Movie> restored =
+                            new com.google.gson.Gson().fromJson(json, type);
+
+                    if (restored != null && !restored.isEmpty()) {
+
+                        // If we restored filter results from state, we must also restore the VM “applied” flag,
+                        // otherwise paging will be blocked (canPage=false) after process death restore.
+                        if (selectedNavIndex == NAV_FILTER && restoredFilterApplied) {
+                            viewModel.restoreMovieFilterApplied(true);
+                        }
+
+                        suppressFilterObserverOnceAfterStateRestore = true;
+
+                        movieAdapter.submitList(restored, () -> {
+                            binding.recyclerView.post(() -> {
+
+                                hideFilterEmptyState();
+                                binding.recyclerView.setVisibility(View.VISIBLE);
+
+                                RecyclerView.LayoutManager lm = binding.recyclerView.getLayoutManager();
+                                int lmCount = (lm == null) ? -1 : lm.getItemCount();
+
+                                if (pendingRvState != null && pendingRvNavIndex == selectedNavIndex && lm != null) {
+                                    lm.onRestoreInstanceState(pendingRvState);
+                                    pendingRvState = null;
+                                    pendingRvNavIndex = -1;
+                                }
+
+                                int firstNow = gridLayoutManager.findFirstVisibleItemPosition();
+
+                                updateFilterFabVisibility();
+                            });
+                        });
+                    }
+                } catch (Exception ignored) {
+                    // no-op
+                }
+            }
+        }
+
         setupFabToTop();
 
         setupSearchPill();
@@ -255,13 +356,22 @@ public class MainActivity extends AppCompatActivity
         binding.fabRefreshDiscover.setOnClickListener(v -> onDiscoverRefreshClicked());
         binding.fabRefreshDiscover.setVisibility(View.GONE);
 
-        binding.btnOpenFilter.setOnClickListener(v -> openMovieFilterBottomSheet(false));
+        if (binding.btnOpenFilter != null) {
+            binding.btnOpenFilter.setOnClickListener(v -> openMovieFilterBottomSheet(false));
+        }
+
         binding.fabFilterApplied.setOnClickListener(v -> openMovieFilterBottomSheet(false));
         binding.fabFilterApplied.setVisibility(View.GONE);
 
         if (savedInstanceState == null) {
-            selectNavIndex(NAV_DISCOVER, false);
-            recordNavSelection(NAV_DISCOVER);
+
+            // Cold start default:
+            // If we already resumed/restored to a prior nav (e.g., Filter), do NOT force Discover.
+            if (!didResumeRestore) {
+                selectNavIndex(NAV_DISCOVER, false);
+                recordNavSelection(NAV_DISCOVER);
+            }
+
         } else {
 
             // Rotation restore: for browse tabs, do not trigger a new fetch.
@@ -305,7 +415,7 @@ public class MainActivity extends AppCompatActivity
                 // Rotation restore: ONLY re-apply if we have nothing to display (e.g., process death).
                 if (selectedNavIndex == NAV_FILTER && viewModel.isMovieFilterApplied()) {
 
-                    List<Movie> current = viewModel.getDisplayMovies().getValue();
+                    List<Movie> current = (movieAdapter == null) ? null : movieAdapter.getCurrentList();
                     boolean hasList = (current != null && !current.isEmpty());
 
                     if (!hasList) {
@@ -332,6 +442,14 @@ public class MainActivity extends AppCompatActivity
         }
 
         restoringFromRotation = false;
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (selectedNavIndex == NAV_FILTER && !isInSearchMode()) {
+            updateFilterFabVisibility();
+        }
     }
 
     @Override
@@ -379,6 +497,52 @@ public class MainActivity extends AppCompatActivity
 
         boolean wasFocused = (input != null && input.hasFocus());
         outState.putBoolean(KEY_WAS_SEARCH_PILL_FOCUSED, wasFocused);
+
+        if (uiMode == UiMode.FILTER && movieAdapter != null && movieAdapter.getCurrentList() != null) {
+            try {
+                String json = new com.google.gson.Gson().toJson(movieAdapter.getCurrentList());
+                outState.putString(KEY_FILTER_MOVIES_JSON, json);
+                outState.putBoolean(KEY_FILTER_APPLIED, viewModel.isMovieFilterApplied());
+            } catch (Exception ignored) {
+                // no-op: snapshot is best-effort only
+            }
+
+            Parcelable lmState = null;
+            RecyclerView.LayoutManager layoutManager = binding.recyclerView.getLayoutManager();
+            if (lm != null) lmState = layoutManager.onSaveInstanceState();
+            outState.putParcelable(KEY_RECYCLER_LAYOUT_STATE, lmState);
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+
+        // Minimal resume hint for cold start (savedInstanceState == null).
+        int first = (gridLayoutManager == null) ? 0 : gridLayoutManager.findFirstVisibleItemPosition();
+        boolean applied = (viewModel != null && viewModel.isMovieFilterApplied());
+
+        SharedPreferences sp = getSharedPreferences("filmatlas_ui", MODE_PRIVATE);
+        SharedPreferences.Editor e = sp.edit();
+
+        e.putInt("resume_nav", selectedNavIndex);
+        e.putInt("resume_first", Math.max(0, first));
+        e.putBoolean("resume_filter_applied", applied);
+
+        // Only persist list snapshot for Filter+Applied (so we can restore without network)
+        if (selectedNavIndex == NAV_FILTER && applied) {
+
+            List<Movie> current = (movieAdapter == null) ? null : movieAdapter.getCurrentList();
+            String json = (current == null || current.isEmpty())
+                    ? ""
+                    : new com.google.gson.Gson().toJson(current);
+
+            e.putString("resume_filter_movies_json", json);
+        } else {
+            e.remove("resume_filter_movies_json");
+        }
+
+        e.apply();
     }
 
     @Override
@@ -427,25 +591,25 @@ public class MainActivity extends AppCompatActivity
                 updateFabVisibility(dy);
 
                 if (dy <= 0) return;
-                // Allow paging in SEARCH too (ViewModel routes loadMore() based on DisplayMode)
 
-                // Allow paging in:
-                // - Browse mode (Discover/Popular/New)
-                // - Filter mode ONLY when a filter is actually applied
                 boolean canPage =
                         (uiMode == UiMode.BROWSE)
                                 || (uiMode == UiMode.FILTER && viewModel.isMovieFilterApplied());
-
-                if (!canPage) return;
 
                 int visible = gridLayoutManager.getChildCount();
                 int total = gridLayoutManager.getItemCount();
                 int first = gridLayoutManager.findFirstVisibleItemPosition();
 
+                if (!canPage) return;
+
                 if ((visible + first) >= total - 4) {
 
-                    // Rotation restore guard: don't page while we're restoring scroll.
-                    if (pendingRvState != null) return;
+                    boolean blockPagingForRotationRestore =
+                            restoringFromRotation
+                                    && pendingRvState != null
+                                    && pendingRvNavIndex == selectedNavIndex;
+
+                    if (blockPagingForRotationRestore) return;
 
                     viewModel.loadMore();
                 }
@@ -462,7 +626,9 @@ public class MainActivity extends AppCompatActivity
                 gridLayoutManager.scrollToPositionWithOffset(33, 0);
             }
 
-            binding.recyclerView.post(() -> binding.recyclerView.smoothScrollToPosition(0));
+            if (pendingRvState == null && !restoringFromRotation) {
+                binding.recyclerView.post(() -> binding.recyclerView.smoothScrollToPosition(0));
+            }
         });
     }
 
@@ -657,8 +823,6 @@ public class MainActivity extends AppCompatActivity
                 }
 
                 if (suppressSuggestionFetch) return;
-
-                skipSuggestionFetchBecauseRotation = false;
 
                 if (searchSuggestionsRunnable != null) {
                     searchHandler.removeCallbacks(searchSuggestionsRunnable);
@@ -1102,6 +1266,17 @@ public class MainActivity extends AppCompatActivity
 
             if (uiMode == UiMode.BROWSE || uiMode == UiMode.FILTER) {
 
+                if (uiMode == UiMode.FILTER
+                        && suppressFilterObserverOnceAfterStateRestore
+                        && (movies == null || movies.isEmpty())
+                        && movieAdapter != null
+                        && movieAdapter.getCurrentList() != null
+                        && !movieAdapter.getCurrentList().isEmpty()) {
+
+                    suppressFilterObserverOnceAfterStateRestore = false;
+                    return;
+                }
+
                 movieAdapter.submitList(movies, () -> {
                     restoreRecyclerStateIfReady(movies);
 
@@ -1244,11 +1419,23 @@ public class MainActivity extends AppCompatActivity
         selectedNavIndex = navIndex;
 
         // Rotation restore safety:
-        // Only cancel a pending restore snapshot if we're navigating AWAY from the nav that snapshot belongs to.
-        // (On rotation restore, we must keep pendingRvState intact so the restore path can use it.)
-        if (pendingRvState != null && pendingRvNavIndex != navIndex) {
-            pendingRvState = null;
-            pendingRvNavIndex = -1;
+        // Only apply a pending RV snapshot when we're still on the nav that snapshot belongs to.
+        // (We post to ensure the list/layout is ready; restoring too early often falls back to top.)
+        if (pendingRvState != null && pendingRvNavIndex == selectedNavIndex) {
+            final Parcelable state = pendingRvState;
+            final int stateNav = pendingRvNavIndex;
+
+            binding.recyclerView.post(() -> {
+                if (stateNav != selectedNavIndex) return;
+
+                RecyclerView.LayoutManager lm2 = binding.recyclerView.getLayoutManager();
+                if (lm2 != null) {
+                    lm2.onRestoreInstanceState(state);
+
+                    pendingRvState = null;
+                    pendingRvNavIndex = -1;
+                }
+            });
         }
 
         handlingBackNav = true;
@@ -1344,7 +1531,6 @@ public class MainActivity extends AppCompatActivity
     private void enterBrowseMode() {
         uiMode = UiMode.BROWSE;
 
-        clearFilterIfLeavingFilterMode();
         resetToTopFabVisibility();
         setModeTabsVisualsEnabled(false);
         clearModeTabsSelection();
@@ -1353,7 +1539,6 @@ public class MainActivity extends AppCompatActivity
         exitFilterModeUi();
 
         applyMainTabTitles();
-        updateFilterFabVisibility();
     }
 
     private void enterFavoritesMode() {
@@ -1367,7 +1552,6 @@ public class MainActivity extends AppCompatActivity
         }
 
         exitSearchUiAndMode();
-        clearFilterIfLeavingFilterMode();
         uiMode = UiMode.FAVORITES;
 
         selectedNavIndex = NAV_FAVORITES;
@@ -1402,7 +1586,6 @@ public class MainActivity extends AppCompatActivity
             applyMainTabTitles();
         });
 
-        updateFilterFabVisibility();
         updateDiscoverRefreshFabVisibility();
     }
 
@@ -1478,6 +1661,12 @@ public class MainActivity extends AppCompatActivity
             }
         }
 
+        if (binding.recyclerView.getVisibility() == View.VISIBLE
+                && movieAdapter != null
+                && movieAdapter.getItemCount() == 0) {
+
+            binding.contentContainer.post(() -> showFilterEmptyState(true));
+        }
 
         applyMainTabTitles();
         updateFilterFabVisibility();
@@ -1944,19 +2133,23 @@ public class MainActivity extends AppCompatActivity
     private void updateFilterFabVisibility() {
         if (binding == null || binding.fabFilterApplied == null) return;
 
-        boolean filterEmptyVisible =
-                (binding.emptyStateFilterText != null)
-                        && (binding.emptyStateFilterText.getVisibility() == View.VISIBLE);
+        boolean inSearch = isInSearchMode();
+
+        boolean adapterHasItems =
+                (movieAdapter != null) && (movieAdapter.getItemCount() > 0);
 
         boolean show =
-                (uiMode == UiMode.FILTER)
-                        && !isInSearchMode()
-                        && viewModel.isMovieFilterApplied()
-                        && !filterEmptyVisible;
+                (selectedNavIndex == NAV_FILTER)
+                        && !inSearch
+                        && adapterHasItems;
 
-        binding.fabFilterApplied.setVisibility(show ? View.VISIBLE : View.GONE);
+        int desired = show ? View.VISIBLE : View.GONE;
+        int current = binding.fabFilterApplied.getVisibility();
+
+        if (current == desired) return;
+
+        binding.fabFilterApplied.setVisibility(desired);
     }
-
 
     private void resetToTopFabVisibility() {
         if (binding == null || binding.fabToTop == null) return;
