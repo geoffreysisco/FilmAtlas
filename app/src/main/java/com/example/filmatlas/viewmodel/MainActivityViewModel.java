@@ -291,7 +291,7 @@ public class MainActivityViewModel extends AndroidViewModel {
         movieRepository.loadFirstPagePopular(() -> {});
     }
 
-    public void selectNowPlaying(boolean reselected) {
+    public void selectNew(boolean reselected) {
         exitSearchModeInternal();
         clearFilterStateInternal();
         displayMode.setValue(DisplayMode.BROWSE);

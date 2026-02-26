@@ -1875,7 +1875,7 @@ public class MainActivity extends AppCompatActivity
         }
 
         if (tabIndex == TAB_NEW) {
-            viewModel.selectNowPlaying(reselected);
+            viewModel.selectNew(reselected);
         }
     }
 
@@ -2207,7 +2207,7 @@ public class MainActivity extends AppCompatActivity
         } else if (selectedNavIndex == NAV_POPULAR) {
             viewModel.selectPopular(false);
         } else if (selectedNavIndex == NAV_NEW) {
-            viewModel.selectNowPlaying(false);
+            viewModel.selectNew(false);
         }
 
         restoringBrowseUi = false;
