@@ -77,6 +77,7 @@ public class MainActivity extends AppCompatActivity
     private static final String KEY_SEARCH_PILL_TEXT = "search_pill_text";
     private static final String KEY_WAS_SEARCH_PILL_FOCUSED = "was_search_pill_focused";
     private static final String KEY_FILTER_MOVIES_JSON = "filter_movies_json";
+    private static final String KEY_BROWSE_MOVIES_JSON = "browse_movies_json";
     private static final String KEY_FILTER_APPLIED = "key_filter_applied";
 
     // Unified index constants
@@ -117,6 +118,8 @@ public class MainActivity extends AppCompatActivity
     private final Handler searchHandler = new Handler(Looper.getMainLooper());
     private boolean suppressSuggestionFetch = false;
     private boolean restoringSearchUi = false;
+    private boolean restoringBrowseUi = false;
+    private boolean restoredBrowseSnapshot = false;
     private Runnable searchSuggestionsRunnable;
     private EditText input;
     private ImageView clear;
@@ -133,6 +136,7 @@ public class MainActivity extends AppCompatActivity
     private int selectedNavIndex = NAV_DISCOVER;
     private final Deque<Integer> navBackStack = new ArrayDeque<>();
     private boolean handlingBackNav = false;
+    private int restoredBrowseNavIndex = -1;
     private int pendingRvNavIndex = -1;
     private int lastModeTabIndex = -1;
     private boolean restoringTabs = false;
@@ -158,6 +162,7 @@ public class MainActivity extends AppCompatActivity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        restoringBrowseUi = (savedInstanceState != null);
 
         Intent i = getIntent();
         String action = (i == null) ? "null" : i.getAction();
@@ -371,9 +376,7 @@ public class MainActivity extends AppCompatActivity
                 selectNavIndex(NAV_DISCOVER, false);
                 recordNavSelection(NAV_DISCOVER);
             }
-
         } else {
-
             // Rotation restore: for browse tabs, do not trigger a new fetch.
             if (pendingRvState != null && selectedNavIndex <= NAV_NEW) {
 
@@ -395,6 +398,40 @@ public class MainActivity extends AppCompatActivity
                     restoringTabs = false;
                 }
 
+                final String json = savedInstanceState.getString(KEY_BROWSE_MOVIES_JSON, "");
+                final Parcelable state = savedInstanceState.getParcelable(KEY_RECYCLER_LAYOUT_STATE);
+
+                binding.recyclerView.post(() -> {
+
+                    if (movieAdapter == null) return;
+
+                    if (json == null || json.trim().isEmpty()) return;
+
+                    try {
+                        java.lang.reflect.Type type =
+                                new com.google.gson.reflect.TypeToken<java.util.List<Movie>>() {}.getType();
+
+                        List<Movie> restored = new com.google.gson.Gson().fromJson(json, type);
+
+                        if (restored == null || restored.isEmpty()) return;
+
+                        restoredBrowseNavIndex = selectedNavIndex;
+                        restoredBrowseSnapshot = true;
+
+                        movieAdapter.submitList(restored, () -> {
+                            if (state == null) return;
+
+                            RecyclerView.LayoutManager lm = binding.recyclerView.getLayoutManager();
+                            if (lm != null) {
+                                lm.onRestoreInstanceState(state);
+                            }
+                        });
+
+                    } catch (Exception ignored) {
+                        // no-op
+                    }
+                });
+
                 uiMode = UiMode.BROWSE;
                 setModeTabsVisualsEnabled(false);
                 clearModeTabsSelection();
@@ -409,7 +446,12 @@ public class MainActivity extends AppCompatActivity
                         savedInstanceState.getBoolean(KEY_WAS_IN_SEARCH_MODE, false);
 
                 if (!wasInSearch) {
+
                     selectNavIndex(selectedNavIndex, false);
+
+                    if (restoringBrowseUi) {
+                        kickBrowseLoadIfNeeded();
+                    }
                 }
 
                 // Rotation restore: ONLY re-apply if we have nothing to display (e.g., process death).
@@ -445,6 +487,17 @@ public class MainActivity extends AppCompatActivity
     }
 
     @Override
+    protected void onPostCreate(@Nullable Bundle savedInstanceState) {
+        super.onPostCreate(savedInstanceState);
+        restoringSearchUi = false; // restore window ends here
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         if (selectedNavIndex == NAV_FILTER && !isInSearchMode()) {
@@ -453,20 +506,48 @@ public class MainActivity extends AppCompatActivity
     }
 
     @Override
-    protected void onRestoreInstanceState(@NonNull Bundle savedInstanceState) {
-        restoringSearchUi = true;          // keep ON through super restore
-        super.onRestoreInstanceState(savedInstanceState);
+    protected void onPause() {
+        super.onPause();
     }
 
     @Override
-    protected void onPostCreate(@Nullable Bundle savedInstanceState) {
-        super.onPostCreate(savedInstanceState);
-        restoringSearchUi = false;         // restore window ends here
+    protected void onStop() {
+        super.onStop();
+
+        // Minimal resume hint for cold start (savedInstanceState == null).
+        int first = (gridLayoutManager == null) ? 0 : gridLayoutManager.findFirstVisibleItemPosition();
+        boolean applied = (viewModel != null && viewModel.isMovieFilterApplied());
+
+        SharedPreferences sp = getSharedPreferences("filmatlas_ui", MODE_PRIVATE);
+        SharedPreferences.Editor e = sp.edit();
+
+        e.putInt("resume_nav", selectedNavIndex);
+        e.putInt("resume_first", Math.max(0, first));
+        e.putBoolean("resume_filter_applied", applied);
+
+        // Only persist list snapshot for Filter+Applied (so we can restore without network)
+        if (selectedNavIndex == NAV_FILTER && applied) {
+
+            List<Movie> current = (movieAdapter == null) ? null : movieAdapter.getCurrentList();
+            String json = (current == null || current.isEmpty())
+                    ? ""
+                    : new com.google.gson.Gson().toJson(current);
+
+            e.putString("resume_filter_movies_json", json);
+        } else {
+            e.remove("resume_filter_movies_json");
+        }
+
+        e.apply();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
     }
 
     @Override
     protected void onSaveInstanceState(@NonNull Bundle outState) {
-
         super.onSaveInstanceState(outState);
 
         RecyclerView.LayoutManager lm = binding.recyclerView.getLayoutManager();
@@ -475,8 +556,26 @@ public class MainActivity extends AppCompatActivity
         boolean hasItems = (current != null && !current.isEmpty());
         boolean isGridVisible = (binding.recyclerView.getVisibility() == View.VISIBLE);
 
-        if (lm != null && hasItems && isGridVisible) {
-            outState.putParcelable(KEY_RECYCLER_LAYOUT_STATE, lm.onSaveInstanceState());
+        if (uiMode == UiMode.BROWSE
+                && selectedNavIndex <= NAV_NEW
+                && hasItems) {
+            try {
+                String json = new com.google.gson.Gson().toJson(current);
+                outState.putString(KEY_BROWSE_MOVIES_JSON, json);
+            } catch (Exception ignored) {
+                // no-op: snapshot is best-effort only
+            }
+        }
+
+        if (lm != null && hasItems) {
+
+            // For BROWSE tabs, the detail overlay may hide the grid view, but we still want scroll restore
+            // when returning from external links (Activity recreate).
+            if (uiMode == UiMode.BROWSE && selectedNavIndex <= NAV_NEW) {
+                outState.putParcelable(KEY_RECYCLER_LAYOUT_STATE, lm.onSaveInstanceState());
+            } else if (isGridVisible) {
+                outState.putParcelable(KEY_RECYCLER_LAYOUT_STATE, lm.onSaveInstanceState());
+            }
         }
 
         outState.putInt(KEY_SELECTED_NAV_INDEX, selectedNavIndex);
@@ -515,34 +614,10 @@ public class MainActivity extends AppCompatActivity
     }
 
     @Override
-    protected void onStop() {
-        super.onStop();
-
-        // Minimal resume hint for cold start (savedInstanceState == null).
-        int first = (gridLayoutManager == null) ? 0 : gridLayoutManager.findFirstVisibleItemPosition();
-        boolean applied = (viewModel != null && viewModel.isMovieFilterApplied());
-
-        SharedPreferences sp = getSharedPreferences("filmatlas_ui", MODE_PRIVATE);
-        SharedPreferences.Editor e = sp.edit();
-
-        e.putInt("resume_nav", selectedNavIndex);
-        e.putInt("resume_first", Math.max(0, first));
-        e.putBoolean("resume_filter_applied", applied);
-
-        // Only persist list snapshot for Filter+Applied (so we can restore without network)
-        if (selectedNavIndex == NAV_FILTER && applied) {
-
-            List<Movie> current = (movieAdapter == null) ? null : movieAdapter.getCurrentList();
-            String json = (current == null || current.isEmpty())
-                    ? ""
-                    : new com.google.gson.Gson().toJson(current);
-
-            e.putString("resume_filter_movies_json", json);
-        } else {
-            e.remove("resume_filter_movies_json");
-        }
-
-        e.apply();
+    protected void onRestoreInstanceState(@NonNull Bundle savedInstanceState) {
+        restoringSearchUi = true;          // keep ON through super restore
+        restoringBrowseUi = true;
+        super.onRestoreInstanceState(savedInstanceState);
     }
 
     @Override
@@ -1766,14 +1841,20 @@ public class MainActivity extends AppCompatActivity
 
     private void applyBrowseTabSelection(int tabIndex, boolean reselected) {
 
-        // Rotation restore guard:
-        // If we already have movies on screen, don't trigger a new browse fetch.
-        // This prevents "random refresh" (Discover) and paging resets (Popular/New).
-        if (!reselected && pendingRvState != null) {
-            List<Movie> current = viewModel.getDisplayMovies().getValue();
-            if (current != null && !current.isEmpty()) {
+        int navForTab = mapBrowseTabToNavIndex(tabIndex);
+
+        if (!reselected && restoredBrowseSnapshot) {
+
+            // Only skip the fetch for the exact nav we restored (one-shot).
+            if (navForTab == restoredBrowseNavIndex) {
+                restoredBrowseSnapshot = false;
+                restoredBrowseNavIndex = -1;
                 return;
             }
+
+            // Switching to a different browse tab: do NOT skip. Clear restore flags so normal fetch happens.
+            restoredBrowseSnapshot = false;
+            restoredBrowseNavIndex = -1;
         }
 
         if (tabIndex == TAB_DISCOVER) {
@@ -2096,6 +2177,42 @@ public class MainActivity extends AppCompatActivity
         binding.recyclerView.post(() -> movieAdapter.notifyDataSetChanged());
     }
 
+    private void kickBrowseLoadIfNeeded() {
+        if (uiMode != UiMode.BROWSE) return;
+
+        // If we restored a snapshot this restore cycle, do not refetch.
+        if (restoredBrowseSnapshot) {
+            restoringBrowseUi = false;
+            return;
+        }
+
+        Boolean loadingObj = viewModel.getLoading().getValue();
+        boolean loading = Boolean.TRUE.equals(loadingObj);
+
+        List<Movie> current = viewModel.getDisplayMovies().getValue();
+        List<Movie> adapterList = (movieAdapter == null) ? null : movieAdapter.getCurrentList();
+
+        boolean empty =
+                (current == null || current.isEmpty())
+                        && (adapterList == null || adapterList.isEmpty());
+
+        if (loading || !empty) {
+            restoringBrowseUi = false;
+            return;
+        }
+
+        // Still empty + not loading: re-trigger the current browse tab fetch once.
+        if (selectedNavIndex == NAV_DISCOVER) {
+            viewModel.selectDiscover(false);
+        } else if (selectedNavIndex == NAV_POPULAR) {
+            viewModel.selectPopular(false);
+        } else if (selectedNavIndex == NAV_NEW) {
+            viewModel.selectNowPlaying(false);
+        }
+
+        restoringBrowseUi = false;
+    }
+
     // --- Keyboard ---
 
     private void hideKeyboard(@NonNull View view) {
@@ -2213,6 +2330,15 @@ public class MainActivity extends AppCompatActivity
                 || viewModel.getDisplayMovies().getValue().isEmpty();
 
         boolean showEmpty = !loading && empty;
+
+        if (uiMode == UiMode.BROWSE && restoringBrowseUi) {
+            // Stay in restore window until browse either starts loading OR has data again.
+            if (loading || !empty) {
+                restoringBrowseUi = false;
+            } else {
+                showEmpty = false;
+            }
+        }
 
         binding.emptyStateText.setVisibility(showEmpty ? View.VISIBLE : View.GONE);
         binding.recyclerView.setVisibility(showEmpty ? View.GONE : View.VISIBLE);
