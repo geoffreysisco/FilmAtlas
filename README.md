@@ -16,16 +16,15 @@ It is designed for exploring what’s new and popular, learning more about each 
 
 ## Screenshots
 
-<p style="text-align:center;">
-  <img src="docs/screenshots/discover.png" width="30%" />
-  <img src="docs/screenshots/movie-details.png" width="30%" />
-  <img src="docs/screenshots/landscape.png" width="30%" />
+<p align="center">
+  <img src="docs/screenshots/discover.png" alt="Discover screen showing randomized movie grid" width="30%" />
+  <img src="docs/screenshots/movie-details.png" alt="Movie details dialog showing The Dark Knight" width="30%" />
+  <img src="docs/screenshots/landscape.png" alt="Landscape layout of movie details view" width="30%" />
 </p>
 
-<p style="text-align:center;">
+<p align="center">
   Discover • Movie Details • Landscape Layout
 </p>
-
 ---
 
 ## ✨ Features
