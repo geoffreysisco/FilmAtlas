@@ -17,6 +17,12 @@ It is designed for exploring what’s new and popular, learning more about each 
 - Fully responsive layouts for **portrait and landscape**
 - **Light and dark theme** support using Material Design 3
 
+### Discover Mode
+
+The Discover tab surfaces randomized movie selections from the TMDB catalog.
+
+The goal is to encourage exploration — similar to opening a dictionary to a random page and discovering whatever words appear there, but applied to movies.
+
 ---
 
 ## 🛠 Tech Stack
@@ -57,12 +63,6 @@ Film Atlas requires a TMDB API key to run.
 
 ```
 TMDB_API_KEY=YOUR_API_KEY_HERE
-```
-
-Example:
-
-```
-TMDB_API_KEY=abc123yourkeyhere
 ```
 
 `local.properties` is intentionally excluded from version control and remains local to your machine.
