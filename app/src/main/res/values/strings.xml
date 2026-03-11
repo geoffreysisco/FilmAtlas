@@ -8,7 +8,7 @@
     <string name="empty_favorites">No favorites yet.</string>
     <string name="empty_browse">Movies couldn’t be loaded.\nCheck your connection and try again.</string>
     <string name="empty_filter_not_applied">No filter applied\nApply a filter to see results.</string>
-    <string name="empty_filter_no_results">No matches found.\nTry broadening your filter.</string>
+    <string name="empty_filter_no_results">No matches found.\nTry expanding your filter.</string>
     <string name="back_to_top">Back to top</string>
     <string name="movie_poster">Movie poster</string>
     <string name="trailer">Trailer</string>
