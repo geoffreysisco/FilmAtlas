@@ -30,6 +30,7 @@ The goal is to encourage exploration — similar to opening a dictionary to a ra
 - Java
 - Android SDK
 - MVVM architecture
+- Room database
 - Retrofit (TMDB API)
 - LiveData & ViewModel
 - Material Design 3
