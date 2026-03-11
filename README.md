@@ -1,7 +1,30 @@
 # 📱 Film Atlas
 
+# 📱 Film Atlas
+
+![Android](https://img.shields.io/badge/Android-App-3DDC84?logo=android&logoColor=white)
+![Java](https://img.shields.io/badge/Java-ED8B00?logo=openjdk&logoColor=white)
+![Architecture](https://img.shields.io/badge/Architecture-MVVM-blue)
+![Database](https://img.shields.io/badge/Database-Room-green)
+![Networking](https://img.shields.io/badge/Networking-Retrofit-orange)
+
+Film Atlas is a movie discovery app for Android focused on recent U.S. theatrical releases.
+
 Film Atlas is a movie discovery app for Android focused on recent U.S. theatrical releases.  
 It is designed for exploring what’s new and popular, learning more about each movie, and quickly finding where to watch or learn more.
+
+
+## Screenshots
+
+<p style="text-align:center;">
+  <img src="docs/screenshots/discover.png" width="30%" />
+  <img src="docs/screenshots/movie-details.png" width="30%" />
+  <img src="docs/screenshots/landscape.png" width="30%" />
+</p>
+
+<p style="text-align:center;">
+  Discover • Movie Details • Landscape Layout
+</p>
 
 ---
 
