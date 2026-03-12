@@ -1,5 +1,12 @@
 # FilmAtlas Development Backlog
 
+## Contents
+- [MUST FIX](#must-fix)
+- [UX / STRUCTURAL](#ux--structural)
+- [ENGINEERING / REFACTOR](#engineering--refactor)
+- [SHOULD FIX](#should-fix)
+- [NICE TO HAVE](#nice-to-have)
+
 ## MUST FIX
 *(true defects / broken behavior)*
 
