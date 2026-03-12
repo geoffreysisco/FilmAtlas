@@ -16,6 +16,7 @@
 
    ```java
    if (!inSearch && uiMode == UiMode.BROWSE && restoringBrowseUi)
+   ```
 
 2. **Rotate during search from Filter/Favorites resets return tab to Discover**
 
@@ -79,32 +80,32 @@
 ## UX / STRUCTURAL
 *(navigation, state, flow integrity)*
 
-1. **Verify unified navigation behavior**  
+1. **Verify unified navigation behavior**
 
    Validate landscape layout behavior, rotation handling, navigation flow, and paging stability across all modes.  
    Repro: Sometimes  
    Scope: Deep
 
-2. **Lifecycle-safe async handling**  
+2. **Lifecycle-safe async handling**
 
    Verify async operations and observers are lifecycle-safe and properly cleaned up.  
    Repro: Sometimes  
    Scope: Deep
 
-3. **Search entry/exit flow problem**  
+3. **Search entry/exit flow problem**
 
    There must be a clear way to **enter and exit search mode** and return to the origin tab.  
    Currently the tab is hijacked by search and there is no clean return path.  
    Repro: Always  
    Scope: Deep
 
-4. **Explicit exit-search pathway**  
+4. **Explicit exit-search pathway**
 
    Add a clear pathway (possibly a FAB) for exiting search mode and returning to the active tab.  
    Repro: Always  
    Scope: Medium
 
-5. **Centralize UI mode state**  
+5. **Centralize UI mode state**
 
    `MainActivity` currently tracks multiple UI state variables (`uiMode`, last tab state, etc.).  
    Consider introducing a small **UI state object** if complexity grows.  
@@ -113,109 +114,40 @@
 
 ---
 
-## SHOULD FIX
-*(polish affecting perceived quality)*
+## ENGINEERING / REFACTOR
+*(maintainability, architecture, internal cleanup)*
 
-1. **Final production cleanup sweep**  
+1. **Extract state-restore helpers from MainActivity**
 
-   Remove dead code, tighten comments, verify MVVM boundaries, and check regressions.  
+   Reduce `onCreate()` / lifecycle complexity by extracting focused helpers for:
+    - navigation restore
+    - browse snapshot restore
+    - filter snapshot restore
+    - search UI restore
+
+   Goal: improve readability without changing behavior.  
    Scope: Deep
 
-2. **Empty state polish**  
+2. **Centralize RecyclerView restore timing**
 
-   Improve messaging and optionally add simple graphics.  
-   Repro: Always  
-   Scope: Medium
-
-3. **Movie dialog animation polish**  
-
-   Add subtle bounce/settle animation on dialog entrance.  
-   Repro: Always  
-   Scope: Quick
-
-4. **Improve filter button visual depth** 
-
-   Consider adding stroke/elevation to reduce flat appearance.  
-   Repro: Always  
-   Scope: Quick
-
-5. **Possible icon refresh**  
-
-   Review and potentially improve launcher/app icon design.  
-   Scope: Medium
-
-6. **Deduplicate title/year formatting**  
-
-   Move formatting logic into a shared helper.  
-   Scope: Quick
-
-7. **Replace fragment tag magic strings with constants**  
-
-   Scope: Quick
-
-8. **Centralize Movie → MovieActionPayload builder** 
-
-   Scope: Medium
-
-9. **Lifecycle-safe async verification**  
-
-   Ensure network callbacks or observers cannot update UI after Activity/Fragment destruction.  
-   Repro: Sometimes  
+   RecyclerView state restoration currently happens through multiple timing-sensitive paths.  
+   Unify restore flow so dataset binding and layout-state restore happen through a single, consistent pathway.  
    Scope: Deep
 
-10. **Event delivery cleanup**  
+3. **Centralize Gson snapshot serialization/deserialization**
 
-    Ensure one-shot events (e.g., filter empty state events) do not re-fire on rotation unless intended.  
-    Repro: Sometimes  
-    Scope: Medium
+   `MainActivity` repeats Gson and `TypeToken<List<Movie>>` setup for browse/filter save and restore paths.  
+   Move this into a small helper or shared utility to reduce duplication and improve readability.  
+   Scope: Medium
 
-11. **Accessibility polish**  
+4. **Review MainActivity state flags and restore guards**
 
-    Improve content descriptions, dialog focus order, and touch targets.  
-    Repro: Always  
-    Scope: Medium
+   Document and, if safe, simplify restore-related flags such as:
+    - `restoringSearchUi`
+    - `restoringBrowseUi`
+    - `restoredBrowseSnapshot`
+    - `restoringFromRotation`
+    - `pendingRvNavIndex`
 
-12. **Consistency pass**  
-
-    Unify naming conventions and ensure UI strings live in `strings.xml`.  
-    Repro: Always  
-    Scope: Medium
-
-13. **Harden Glide usage**
-
-- placeholder & error drawables
-- caching strategy for TMDB images
-- thumbnail loading for fast scroll
-- RecyclerView preloading  
-  Repro: Sometimes  
-  Scope: Deep
-
-14. **Centralize filter FAB visibility logic**  
-
-    Derive FAB visibility from a single UI state source of truth.  
-    Repro: Always  
-    Scope: Deep
-
-15. **Add scrim behind Favorite and Share icons**  
-
-    In portrait mode the Favorite heart and Share icons appear directly over the poster image.  
-    Icon color is currently chosen dynamically based on poster brightness.  
-    Add a subtle scrim behind the icons to ensure readability across all poster backgrounds.  
-    The scrim should adapt dynamically alongside the existing brightness logic.  
-    Repro: Always  
-    Scope: Medium
-
----
-
-## NICE TO HAVE
-*(future improvements / optional ideas)*
-
-1. Consolidate search history recording logic into a small helper method.
-
-2. Replace `observeForever` with `MediatorLiveData` or `Transformations.switchMap`.
-
-3. Move history pseudo-movie creation into a helper/mapper.
-
-4. Replace `SearchPolicyCallback` with a more generic event mechanism.
-
-5. Add small unit tests for formatting helpers (title/year/share text).
+   Goal: make restore flow easier to reason about without regressing behavior.  
+   Scope: Deep
