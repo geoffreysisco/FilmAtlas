@@ -337,7 +337,11 @@ public class MainActivity extends AppCompatActivity
                     input.setText(pillText);
                     input.setSelection(pillText.length());
 
-                    if (wasFocused) {
+                    if (clear != null) {
+                        clear.setVisibility(pillText.isEmpty() ? View.GONE : View.VISIBLE);
+                    }
+
+                    if (wasFocused && !pillText.isEmpty()) {
                         input.requestFocus();
                         viewModel.fetchSuggestions(""); // show history list again
                         if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
@@ -1061,6 +1065,9 @@ public class MainActivity extends AppCompatActivity
         });
 
         input.setOnFocusChangeListener((v, hasFocus) -> {
+
+            if (restoringSearchUi) return;
+
             if (!hasFocus) {
                 hideSuggestions();
                 return;
