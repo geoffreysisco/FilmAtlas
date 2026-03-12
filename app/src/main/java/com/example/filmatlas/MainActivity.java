@@ -601,18 +601,16 @@ public class MainActivity extends AppCompatActivity
         boolean wasFocused = (input != null && input.hasFocus());
         outState.putBoolean(KEY_WAS_SEARCH_PILL_FOCUSED, wasFocused);
 
-        if (uiMode == UiMode.FILTER && movieAdapter != null && movieAdapter.getCurrentList() != null) {
+        if (uiMode == UiMode.FILTER && current != null) {
             try {
-                String json = new com.google.gson.Gson().toJson(movieAdapter.getCurrentList());
+                String json = new com.google.gson.Gson().toJson(current);
                 outState.putString(KEY_FILTER_MOVIES_JSON, json);
                 outState.putBoolean(KEY_FILTER_APPLIED, viewModel.isMovieFilterApplied());
             } catch (Exception ignored) {
                 // no-op: snapshot is best-effort only
             }
 
-            Parcelable lmState = null;
-            RecyclerView.LayoutManager layoutManager = binding.recyclerView.getLayoutManager();
-            if (lm != null) lmState = layoutManager.onSaveInstanceState();
+            Parcelable lmState = (lm != null) ? lm.onSaveInstanceState() : null;
             outState.putParcelable(KEY_RECYCLER_LAYOUT_STATE, lmState);
         }
     }
