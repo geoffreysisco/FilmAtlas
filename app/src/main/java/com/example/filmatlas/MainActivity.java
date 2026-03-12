@@ -351,7 +351,7 @@ public class MainActivity extends AppCompatActivity
                     }
                 }
 
-                restoringSearchUi = false;  // ← stays here
+                restoringSearchUi = false;
             }
         }
 
@@ -2338,7 +2338,7 @@ public class MainActivity extends AppCompatActivity
 
         boolean showEmpty = !loading && empty;
 
-        if (uiMode == UiMode.BROWSE && restoringBrowseUi) {
+        if (!inSearch && uiMode == UiMode.BROWSE && restoringBrowseUi) {
             // Stay in restore window until browse either starts loading OR has data again.
             if (loading || !empty) {
                 restoringBrowseUi = false;
