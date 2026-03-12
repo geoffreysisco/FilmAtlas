@@ -3,16 +3,32 @@
 ## MUST FIX
 *(true defects / broken behavior)*
 
-1. **Rotate after clearing search shows blank screen**
+1. **Rotate after clearing search shows blank screen** ✅ FIXED
 
-   When in search mode and the query has been cleared, rotating the device lands in a blank empty state with no UI message.  
-   Repro: Always  
-   Scope: Medium
+   When in search mode and the query has been cleared, rotating the device lands in a blank empty state with no UI message.
 
-2. **Rotation bug between tabs and search results**
+   Root cause:
+   The browse restore guard (`restoringBrowseUi`) suppressed empty-state rendering even
+   when the UI was in search mode.
 
-   Rotating from landscape after entering search mode while on the **Filter** or **Favorites** tab drops the user into the Discover tab with search results showing (tab label still says "search").  
-   Rotating back returns to the Favorites tab but the tab label still says search. RecyclerView remains unaffected.  
+   Fix:
+   Restrict the browse restore guard so it does not run during search mode.
+
+   ```java
+   if (!inSearch && uiMode == UiMode.BROWSE && restoringBrowseUi)
+
+2. **Rotate during search from Filter/Favorites resets return tab to Discover**
+
+   Entering search from the **Filter** or **Favorites** tab correctly sets the cleared-search
+   button to “Back to Filter/Favorites”. After rotating the device, the cleared-search button
+   changes to “Back to Discover”, indicating the app now believes Discover is the return tab.
+
+   In portrait, the UI also drops onto the Discover tab after rotation. In landscape, the
+   correct Filter/Favorites tab location is preserved, but the cleared-search button still assumes
+   Discover as the return target.
+
+   RecyclerView content and search results remain correct throughout.
+
    Repro: Always  
    Scope: Deep
 
