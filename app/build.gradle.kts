@@ -17,11 +17,11 @@ if (tmdbApiKey.isBlank()) {
 }
 
 android {
-    namespace = "com.example.filmatlas"
+    namespace = "com.geoffreysisco.filmatlas"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.filmatlas"
+        applicationId = "com.geoffreysisco.filmatlas"
         minSdk = 24
         targetSdk = 36
         versionCode = 1

@@ -7,7 +7,7 @@
         <!-- Bound movie for this row -->
         <variable
             name="movie"
-            type="com.example.filmatlas.model.Movie" />
+            type="com.geoffreysisco.filmatlas.model.Movie" />
 
     </data>
 

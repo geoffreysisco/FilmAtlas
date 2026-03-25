@@ -9,7 +9,7 @@
         android:layout_height="match_parent"
         android:clickable="true"
         android:focusable="true"
-        tools:context=".MainActivity">
+        tools:context="com.geoffreysisco.filmatlas.MainActivity">
 
         <!-- Top app bar (search pill is a toolbar child for full-width layout) -->
         <com.google.android.material.appbar.MaterialToolbar
