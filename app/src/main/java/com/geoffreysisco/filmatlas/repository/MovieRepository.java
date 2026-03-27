@@ -184,6 +184,16 @@ public class MovieRepository {
                     browseTotalPages = body.getTotalPages();
                 }
 
+                if (browseMode == BrowseMode.DISCOVER_RANDOM
+                        && browseTotalPages > 0
+                        && browseCurrentPage > browseTotalPages) {
+
+                    int maxPage = Math.min(browseTotalPages, DISCOVER_RANDOM_START_PAGE_MAX);
+                    browseCurrentPage = 1 + random.nextInt(maxPage);
+                    loadNextPageBrowse(cb);
+                    return;
+                }
+
                 List<Movie> filtered = filterOutMissingPosters(body.getMovies());
 
                 if (browseMode == BrowseMode.DISCOVER_RANDOM) {
