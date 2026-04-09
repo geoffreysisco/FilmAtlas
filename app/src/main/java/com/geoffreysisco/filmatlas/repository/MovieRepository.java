@@ -51,6 +51,7 @@ public class MovieRepository {
 
     private final ArrayList<Movie> browseMovies = new ArrayList<>();
     private final MutableLiveData<List<Movie>> browseLiveData = new MutableLiveData<>();
+    private final Set<Integer> filteredSeenMovieIds = new HashSet<>();
 
     private int movieFilteredEmptySkips = 0;
     private int discoverEmptySkips = 0;
@@ -131,6 +132,7 @@ public class MovieRepository {
         browseLiveData.setValue(new ArrayList<>());
         browseCurrentPage = 1;
         browseTotalPages = Integer.MAX_VALUE;
+        filteredSeenMovieIds.clear();
         loadNextPageBrowse(cb);
     }
 
@@ -195,6 +197,23 @@ public class MovieRepository {
                 }
 
                 List<Movie> filtered = filterOutMissingPosters(body.getMovies());
+
+                if (browseMode == BrowseMode.MOVIES_FILTERED) {
+                    List<Movie> deduped = new ArrayList<>();
+
+                    for (Movie m : filtered) {
+                        if (m == null) continue;
+
+                        Integer id = m.getId();
+                        if (id == null) continue;
+
+                        if (filteredSeenMovieIds.add(id)) {
+                            deduped.add(m);
+                        }
+                    }
+
+                    filtered = deduped;
+                }
 
                 if (browseMode == BrowseMode.DISCOVER_RANDOM) {
                     List<Movie> deduped = new ArrayList<>();
@@ -481,5 +500,6 @@ public class MovieRepository {
     public void clearBrowseResults() {
         browseMovies.clear();
         browseLiveData.setValue(new ArrayList<>());
+        filteredSeenMovieIds.clear();
     }
 }
