@@ -155,6 +155,22 @@ public class MainActivity extends AppCompatActivity
     private boolean suppressFilterObserverOnceAfterStateRestore = false;
     private boolean didResumeRestore = false;
 
+    private static final class FilterRestoreSnapshot {
+        final int nav;
+        final boolean filterApplied;
+        final List<Movie> restoredMovies;
+
+        FilterRestoreSnapshot(
+                int nav,
+                boolean filterApplied,
+                List<Movie> restoredMovies
+        ) {
+            this.nav = nav;
+            this.filterApplied = filterApplied;
+            this.restoredMovies = restoredMovies;
+        }
+    }
+
     // =====================
     // Lifecycle
     // =====================
@@ -179,44 +195,16 @@ public class MainActivity extends AppCompatActivity
 
         // Resume restore (process death / external return):
         // Only resume to Filter if we have a list snapshot; otherwise fall back to normal startup (Discover).
+        FilterRestoreSnapshot resumeFilterSnapshot = null;
+        int resumeFirst = 0;
         if (savedInstanceState == null && !isNormalLauncherStart) {
+            resumeFilterSnapshot = buildFilterRestoreSnapshotFromSharedPreferences();
 
             SharedPreferences sp = getSharedPreferences("filmatlas_ui", MODE_PRIVATE);
+            resumeFirst = sp.getInt("resume_first", 0);
 
-            int resumeNav = sp.getInt("resume_nav", -1);
-            int resumeFirst = sp.getInt("resume_first", 0);
-            boolean resumeFilterApplied = sp.getBoolean("resume_filter_applied", false);
-
-            String resumeJson = sp.getString("resume_filter_movies_json", "");
-            boolean hasResumeJson = (resumeJson != null && !resumeJson.trim().isEmpty());
-
-            if (resumeNav == NAV_FILTER && resumeFilterApplied && hasResumeJson) {
-
+            if (resumeFilterSnapshot != null) {
                 didResumeRestore = true;
-
-                // Enter filter UI mode without opening bottom sheet / without clearing list.
-                selectNavIndex(NAV_FILTER, false);
-
-                // Restore VM applied flag so paging logic is consistent.
-                viewModel.restoreMovieFilterApplied(true);
-
-                try {
-                    java.lang.reflect.Type type =
-                            new com.google.gson.reflect.TypeToken<java.util.List<com.geoffreysisco.filmatlas.model.Movie>>() {}.getType();
-
-                    java.util.List<Movie> restored =
-                            new com.google.gson.Gson().fromJson(resumeJson, type);
-
-                    if (restored != null && !restored.isEmpty()) {
-                        movieAdapter.submitList(restored, () ->
-                                binding.recyclerView.post(() ->
-                                        gridLayoutManager.scrollToPosition(Math.max(0, resumeFirst))
-                                )
-                        );
-                    }
-                } catch (Exception ignored) {
-                    // Ignore restore errors — resume state is non-critical
-                }
             }
         }
 
@@ -260,52 +248,28 @@ public class MainActivity extends AppCompatActivity
         setupSystemInsets();
         setupRecycler();
 
+        if (resumeFilterSnapshot != null) {
+            final int restoredFirst = resumeFirst;
+            applyFilterSnapshot(resumeFilterSnapshot, () ->
+                    gridLayoutManager.scrollToPosition(Math.max(0, restoredFirst)));
+        }
+
         if (savedInstanceState != null) {
-            String json = savedInstanceState.getString(KEY_FILTER_MOVIES_JSON);
+            FilterRestoreSnapshot snapshot =
+                    buildFilterRestoreSnapshotFromSavedState(savedInstanceState);
 
-            boolean restoredFilterApplied = savedInstanceState.getBoolean(KEY_FILTER_APPLIED, false);
+            if (snapshot != null) {
+                suppressFilterObserverOnceAfterStateRestore = true;
 
-            if (json != null && !json.trim().isEmpty()) {
-                try {
-                    java.lang.reflect.Type type =
-                            new com.google.gson.reflect.TypeToken<java.util.List<Movie>>() {}.getType();
-                    java.util.List<Movie> restored =
-                            new com.google.gson.Gson().fromJson(json, type);
+                applyFilterSnapshot(snapshot, () -> {
+                    RecyclerView.LayoutManager lm = binding.recyclerView.getLayoutManager();
 
-                    if (restored != null && !restored.isEmpty()) {
-
-                        // If we restored filter results from state, we must also restore the VM “applied” flag,
-                        // otherwise paging will be blocked (canPage=false) after process death restore.
-                        if (selectedNavIndex == NAV_FILTER && restoredFilterApplied) {
-                            viewModel.restoreMovieFilterApplied(true);
-                        }
-
-                        suppressFilterObserverOnceAfterStateRestore = true;
-
-                        movieAdapter.submitList(restored, () -> {
-                            binding.recyclerView.post(() -> {
-
-                                hideFilterEmptyState();
-                                binding.recyclerView.setVisibility(View.VISIBLE);
-
-                                RecyclerView.LayoutManager lm = binding.recyclerView.getLayoutManager();
-                                int lmCount = (lm == null) ? -1 : lm.getItemCount();
-
-                                if (pendingRvState != null && pendingRvNavIndex == selectedNavIndex && lm != null) {
-                                    lm.onRestoreInstanceState(pendingRvState);
-                                    pendingRvState = null;
-                                    pendingRvNavIndex = -1;
-                                }
-
-                                int firstNow = gridLayoutManager.findFirstVisibleItemPosition();
-
-                                updateFilterFabVisibility();
-                            });
-                        });
+                    if (pendingRvState != null && pendingRvNavIndex == selectedNavIndex && lm != null) {
+                        lm.onRestoreInstanceState(pendingRvState);
+                        pendingRvState = null;
+                        pendingRvNavIndex = -1;
                     }
-                } catch (Exception ignored) {
-                    // no-op
-                }
+                });
             }
         }
 
@@ -455,19 +419,6 @@ public class MainActivity extends AppCompatActivity
 
                     if (restoringBrowseUi) {
                         kickBrowseLoadIfNeeded();
-                    }
-                }
-
-                // Rotation restore: ONLY re-apply if we have nothing to display (e.g., process death).
-                if (selectedNavIndex == NAV_FILTER && viewModel.isMovieFilterApplied()) {
-
-                    List<Movie> current = (movieAdapter == null) ? null : movieAdapter.getCurrentList();
-                    boolean hasList = (current != null && !current.isEmpty());
-
-                    if (!hasList) {
-                        MovieFilterOptions opts = viewModel.getActiveMovieFilterOptions().getValue();
-                        if (opts == null) opts = MovieFilterOptions.defaults();
-                        viewModel.applyMovieFilter(opts);
                     }
                 }
 
@@ -2010,6 +1961,106 @@ public class MainActivity extends AppCompatActivity
     }
 
     // --- Filter ---
+
+    private FilterRestoreSnapshot buildFilterRestoreSnapshotFromSharedPreferences() {
+
+        SharedPreferences sp = getSharedPreferences("filmatlas_ui", MODE_PRIVATE);
+
+        int resumeNav = sp.getInt("resume_nav", -1);
+        boolean resumeFilterApplied = sp.getBoolean("resume_filter_applied", false);
+
+        String resumeJson = sp.getString("resume_filter_movies_json", null);
+
+        if (resumeNav != NAV_FILTER) return null;
+        if (!resumeFilterApplied) return null;
+        if (resumeJson == null || resumeJson.trim().isEmpty()) return null;
+
+        try {
+            java.lang.reflect.Type type =
+                    new com.google.gson.reflect.TypeToken<java.util.List<Movie>>() {
+                    }.getType();
+
+            java.util.List<Movie> restored =
+                    new com.google.gson.Gson().fromJson(resumeJson, type);
+
+            if (restored == null || restored.isEmpty()) {
+                return null;
+            }
+
+            return new FilterRestoreSnapshot(
+                    NAV_FILTER,
+                    true,
+                    restored
+            );
+
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private FilterRestoreSnapshot buildFilterRestoreSnapshotFromSavedState(@NonNull Bundle savedInstanceState) {
+
+        int restoredNav = savedInstanceState.getInt(
+                KEY_SELECTED_NAV_INDEX,
+                mapBrowseTabToNavIndex(selectedTabIndex)
+        );
+
+        boolean restoredFilterApplied =
+                savedInstanceState.getBoolean(KEY_FILTER_APPLIED, false);
+
+        String json = savedInstanceState.getString(KEY_FILTER_MOVIES_JSON, "");
+        boolean hasJson = (json != null && !json.trim().isEmpty());
+
+        if (restoredNav != NAV_FILTER || !restoredFilterApplied || !hasJson) {
+            return null;
+        }
+
+        try {
+            java.lang.reflect.Type type =
+                    new com.google.gson.reflect.TypeToken<java.util.List<Movie>>() {
+                    }.getType();
+
+            java.util.List<Movie> restored =
+                    new com.google.gson.Gson().fromJson(json, type);
+
+            if (restored == null || restored.isEmpty()) {
+                return null;
+            }
+
+            return new FilterRestoreSnapshot(
+                    NAV_FILTER,
+                    true,
+                    restored
+            );
+
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void applyFilterSnapshot(
+            @NonNull FilterRestoreSnapshot snapshot,
+            @Nullable Runnable afterSubmit
+    ) {
+        selectNavIndex(NAV_FILTER, false);
+        viewModel.restoreMovieFilterApplied(snapshot.filterApplied);
+
+        if (snapshot.restoredMovies == null || snapshot.restoredMovies.isEmpty()) {
+            return;
+        }
+
+        movieAdapter.submitList(snapshot.restoredMovies, () ->
+                binding.recyclerView.post(() -> {
+                    hideFilterEmptyState();
+                    binding.recyclerView.setVisibility(View.VISIBLE);
+                    updateFilterFabVisibility();
+
+                    if (afterSubmit != null) {
+                        afterSubmit.run();
+                    }
+                })
+        );
+    }
 
     private void refreshFilterOrShowEmptyState() {
         if (viewModel.isMovieFilterApplied()) {
