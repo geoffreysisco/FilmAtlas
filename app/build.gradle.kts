@@ -11,7 +11,9 @@ if (localPropsFile.exists()) {
     localProps.load(FileInputStream(localPropsFile))
 }
 
-val tmdbApiKey: String = localProps.getProperty("TMDB_API_KEY") ?: ""
+val tmdbApiKey: String = localProps.getProperty("TMDB_API_KEY")
+    ?: project.findProperty("TMDB_API_KEY") as? String
+    ?: ""
 if (tmdbApiKey.isBlank()) {
     throw GradleException("Missing TMDB_API_KEY in local.properties")
 }

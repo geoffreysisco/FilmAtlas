@@ -65,49 +65,59 @@ Real-world debugging and architecture work from Film Atlas development.
 
 **Problem**
 
-When the device rotated or the Activity was recreated, parts of the UI state could be lost or restored inconsistently. This included the movie dataset, RecyclerView scroll position, search query state, and filter selections.
+During Activity recreation (e.g., rotation or process death), UI state could restore inconsistently.  
+This affected the movie dataset, RecyclerView scroll position, search state, and filter context.
 
-**Root Cause**
-
-Activity recreation triggered lifecycle events that rebuilt parts of the UI while other parts attempted to restore saved state. Without coordination, restored UI state could be overwritten during the recreation process.
-
-**Solution**
-
-Implemented a two-stage state restoration flow:
-
-• Serialized the movie dataset using Gson snapshots for reliable dataset restoration  
-• Saved and restored RecyclerView LayoutManager state to preserve scroll position  
-• Added restoration guard flags to prevent lifecycle callbacks from overriding restored UI state during Activity recreation
-
-**Result**
-
-Movie lists, scroll position, search state, and filter context now restore reliably across configuration changes, providing a consistent user experience after rotation or Activity recreation.
+In some cases, the list would appear restored visually, but paging, empty-state logic, or scroll position would behave incorrectly.
 
 ---
 
-### Search UI State Preservation During Rotation
-
-**Problem**
-
-After rotating the device while in search mode, parts of the search UI could restore inconsistently.  
-The search query text, clear button visibility, suggestion dropdown, and focus state could become unsynchronized.
-
 **Root Cause**
 
-Search UI elements were restored independently during Activity recreation.  
-Without coordination, lifecycle callbacks and UI observers could trigger additional updates that conflicted with the restored search state.
+Restore logic was distributed across multiple lifecycle entry points (`onCreate`, observers, and mode transitions) and relied on a set of loosely coordinated flags.
+
+Critically, restoration depended on **timing between three independent concerns**:
+- dataset submission (`submitList`)
+- RecyclerView layout pass
+- ViewModel/UI mode state (`movieFilterApplied`, `DisplayMode`)
+
+Because these were not synchronized through a single contract, small ordering differences could result in:
+- scroll restoration being ignored or snapping to top
+- incorrect empty-state visibility
+- paging being blocked despite visible data
+
+---
 
 **Solution**
 
-Implemented explicit search UI restoration handling:
+Refactored restoration into a **validated, contract-driven flow**:
 
-• Saved the search pill text and focus state during `onSaveInstanceState()`  
-• Restored the search query, clear button visibility, and focus state during Activity recreation  
-• Added a restoration guard (`restoringSearchUi`) to prevent text listeners and observers from triggering unintended updates during restore
+- Introduced `FilterRestoreSnapshot` as a single source of truth for a valid restore state
+- Built snapshot creators for:
+    - `savedInstanceState` (rotation)
+    - SharedPreferences (process/external return)
+- Centralized restore application into a single `applyFilterSnapshot(...)` entry point
+- Ensured invariant:  
+  **if a dataset is restored, Filter mode and ViewModel state must also be restored in the same step**
+
+To address timing issues:
+
+- Used `submitList(..., commitCallback)` to wait for adapter dataset commit
+- Used `RecyclerView.post { ... }` to restore scroll/layout state on the next UI pass
+
+This guarantees that scroll restoration happens **after both dataset commit and layout**, avoiding race conditions.
+
+Removed legacy fallback logic and reduced reliance on distributed restore flags in favor of an explicit restore contract.
+
+---
 
 **Result**
 
-Search queries, UI focus state, and suggestion behavior now restore consistently after device rotation, maintaining a stable search experience across configuration changes.
+State restoration is now deterministic and consistent across lifecycle events.
+
+- Dataset, filter state, scroll position, and UI mode are restored together
+- No dependency on observer timing or callback ordering
+- Eliminated scroll restoration failures and inconsistent empty-state behavior
 
 ---
 
