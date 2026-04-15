@@ -3,13 +3,16 @@ package com.geoffreysisco.filmatlas.repository;
 import android.app.Application;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 
 import com.geoffreysisco.filmatlas.BuildConfig;
 import com.geoffreysisco.filmatlas.model.MovieFilterOptions;
 import com.geoffreysisco.filmatlas.model.Movie;
+import com.geoffreysisco.filmatlas.model.Trailer;
 import com.geoffreysisco.filmatlas.network.MoviesResponse;
+import com.geoffreysisco.filmatlas.network.TrailerResponse;
 import com.geoffreysisco.filmatlas.serviceapi.MovieApiService;
 import com.geoffreysisco.filmatlas.serviceapi.RetrofitInstance;
 
@@ -75,6 +78,12 @@ public class MovieRepository {
     // Callbacks
     public interface LoadingCallback {
         void onDone();
+    }
+
+    public interface TrailerFetchCallback {
+        void onTrailerKeyReady(@NonNull String youtubeKey);
+        void onNoTrailerFound();
+        void onFetchFailed();
     }
 
     // Constructor
@@ -405,6 +414,46 @@ public class MovieRepository {
         });
     }
 
+    public void fetchBestTrailerKey(int movieId, @NonNull TrailerFetchCallback cb) {
+        if (movieId <= 0) {
+            cb.onFetchFailed();
+            return;
+        }
+
+        MovieApiService api = RetrofitInstance.getService();
+        String apiKey = BuildConfig.TMDB_API_KEY;
+
+        api.getMovieVideos(movieId, apiKey).enqueue(new Callback<TrailerResponse>() {
+            @Override
+            public void onResponse(
+                    @NonNull Call<TrailerResponse> call,
+                    @NonNull Response<TrailerResponse> response
+            ) {
+                TrailerResponse body = response.body();
+                if (!response.isSuccessful() || body == null || body.getResults() == null) {
+                    cb.onNoTrailerFound();
+                    return;
+                }
+
+                String key = pickBestYouTubeKey(body);
+                if (key == null) {
+                    cb.onNoTrailerFound();
+                    return;
+                }
+
+                cb.onTrailerKeyReady(key);
+            }
+
+            @Override
+            public void onFailure(
+                    @NonNull Call<TrailerResponse> call,
+                    @NonNull Throwable t
+            ) {
+                cb.onFetchFailed();
+            }
+        });
+    }
+
     private void loadFirstPageBrowseInternal(@NonNull LoadingCallback cb) {
         browseMovies.clear();
         discoverEmptySkips = 0;
@@ -495,6 +544,24 @@ public class MovieRepository {
             }
         }
         return out;
+    }
+
+    @Nullable
+    private String pickBestYouTubeKey(@NonNull TrailerResponse body) {
+        for (Trailer t : body.getResults()) {
+            if ("YouTube".equalsIgnoreCase(t.getSite())
+                    && "Trailer".equalsIgnoreCase(t.getType())) {
+                return t.getKey();
+            }
+        }
+
+        for (Trailer t : body.getResults()) {
+            if ("YouTube".equalsIgnoreCase(t.getSite())) {
+                return t.getKey();
+            }
+        }
+
+        return null;
     }
 
     public void clearBrowseResults() {

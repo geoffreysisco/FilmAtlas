@@ -3,6 +3,7 @@ package com.geoffreysisco.filmatlas.viewmodel;
 import android.app.Application;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MediatorLiveData;
@@ -47,6 +48,23 @@ public class MainActivityViewModel extends AndroidViewModel {
         FILTER
     }
 
+    public enum TrailerEventType {
+        OPEN_TRAILER,
+        TRAILER_UNAVAILABLE,
+        NETWORK_ERROR,
+        INVALID_MOVIE_ID
+    }
+
+    public static final class TrailerEvent {
+        @NonNull public final TrailerEventType type;
+        @Nullable public final String youtubeKey;
+
+        public TrailerEvent(@NonNull TrailerEventType type, @Nullable String youtubeKey) {
+            this.type = type;
+            this.youtubeKey = youtubeKey;
+        }
+    }
+
     private final MutableLiveData<DisplayMode> displayMode =
             new MutableLiveData<>(DisplayMode.BROWSE);
 
@@ -68,6 +86,9 @@ public class MainActivityViewModel extends AndroidViewModel {
 
     // Loading: mirrors MovieRepository when not searching; mirrors SearchRepository when searching
     private final MutableLiveData<Boolean> loadingLiveData = new MutableLiveData<>(false);
+
+    private final MutableLiveData<Boolean> trailerLoadingLiveData = new MutableLiveData<>(false);
+    private final MutableLiveData<TrailerEvent> trailerEventLiveData = new MutableLiveData<>(null);
 
     // Search mode flag (Activity depends on this existing)
     private final MutableLiveData<Boolean> searchMode = new MutableLiveData<>(false);
@@ -195,6 +216,55 @@ public class MainActivityViewModel extends AndroidViewModel {
 
     public LiveData<Boolean> getLoadingLiveData() {
         return loadingLiveData;
+    }
+
+    public LiveData<Boolean> getTrailerLoadingLiveData() {
+        return trailerLoadingLiveData;
+    }
+
+    public LiveData<TrailerEvent> getTrailerEventLiveData() {
+        return trailerEventLiveData;
+    }
+
+    public void clearTrailerEvent() {
+        trailerEventLiveData.setValue(null);
+    }
+
+    public void requestTrailer(int movieId) {
+        if (movieId <= 0) {
+            trailerEventLiveData.setValue(
+                    new TrailerEvent(TrailerEventType.INVALID_MOVIE_ID, null)
+            );
+            return;
+        }
+
+        trailerLoadingLiveData.setValue(true);
+
+        movieRepository.fetchBestTrailerKey(movieId, new MovieRepository.TrailerFetchCallback() {
+            @Override
+            public void onTrailerKeyReady(@NonNull String youtubeKey) {
+                trailerLoadingLiveData.postValue(false);
+                trailerEventLiveData.postValue(
+                        new TrailerEvent(TrailerEventType.OPEN_TRAILER, youtubeKey)
+                );
+            }
+
+            @Override
+            public void onNoTrailerFound() {
+                trailerLoadingLiveData.postValue(false);
+                trailerEventLiveData.postValue(
+                        new TrailerEvent(TrailerEventType.TRAILER_UNAVAILABLE, null)
+                );
+            }
+
+            @Override
+            public void onFetchFailed() {
+                trailerLoadingLiveData.postValue(false);
+                trailerEventLiveData.postValue(
+                        new TrailerEvent(TrailerEventType.NETWORK_ERROR, null)
+                );
+            }
+        });
     }
 
     public LiveData<Boolean> isSearchMode() {

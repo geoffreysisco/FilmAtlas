@@ -33,13 +33,8 @@ import androidx.lifecycle.ViewModelProvider;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.target.CustomTarget;
 import com.bumptech.glide.request.transition.Transition;
-import com.geoffreysisco.filmatlas.BuildConfig;
 import com.geoffreysisco.filmatlas.R;
 import com.geoffreysisco.filmatlas.model.MovieActionPayload;
-import com.geoffreysisco.filmatlas.model.Trailer;
-import com.geoffreysisco.filmatlas.network.TrailerResponse;
-import com.geoffreysisco.filmatlas.serviceapi.MovieApiService;
-import com.geoffreysisco.filmatlas.serviceapi.RetrofitInstance;
 import com.geoffreysisco.filmatlas.viewmodel.MainActivityViewModel;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.color.MaterialColors;
@@ -47,9 +42,6 @@ import com.google.android.material.color.MaterialColors;
 import java.util.Locale;
 
 import jp.wasabeef.glide.transformations.BlurTransformation;
-import retrofit2.Call;
-import retrofit2.Callback;
-import retrofit2.Response;
 
 /**
  * DialogFragment for movie details with artwork, overview, and TMDB/trailer actions.
@@ -140,13 +132,16 @@ public class MovieDetailsDialogFragment extends DialogFragment {
 
         MovieActionPayload payload = readPayload();
 
+        MainActivityViewModel viewModel =
+                new ViewModelProvider(requireActivity()).get(MainActivityViewModel.class);
+
         titleTv.setText(formatTitleWithYear(payload.getTitle(), payload.getReleaseYear()));
         ratingBtn.setText(String.format(Locale.US, "%.2f", payload.getRating()));
         overviewTv.setText(payload.getOverview());
 
         closeBtn.setOnClickListener(v -> dismissAllowingStateLoss());
         ratingBtn.setOnClickListener(v -> openTmdbMoviePage(payload.getMovieId()));
-        trailerBtn.setOnClickListener(v -> fetchAndOpenTrailer(payload.getMovieId(), trailerBtn));
+        trailerBtn.setOnClickListener(v -> viewModel.requestTrailer(payload.getMovieId()));
         whereToWatchBtn.setOnClickListener(v -> openTmdbWatchPage(payload.getMovieId()));
 
         if (shareBtn != null) {
@@ -195,14 +190,41 @@ public class MovieDetailsDialogFragment extends DialogFragment {
             );
         }
 
-        MainActivityViewModel viewModel =
-                new ViewModelProvider(requireActivity()).get(MainActivityViewModel.class);
-
         if (favoriteBtn != null && payload.getMovieId() > 0) {
             viewModel.isFavoriteLive(payload.getMovieId()).observe(this, isFav -> {
                 favoriteBtn.setSelected(Boolean.TRUE.equals(isFav));
             });
         }
+
+        viewModel.getTrailerLoadingLiveData().observe(this, isLoading -> {
+            setTrailerLoading(trailerBtn, Boolean.TRUE.equals(isLoading));
+        });
+
+        viewModel.getTrailerEventLiveData().observe(this, event -> {
+            if (event == null) return;
+
+            switch (event.type) {
+                case OPEN_TRAILER:
+                    if (event.youtubeKey != null) {
+                        openTrailer(event.youtubeKey);
+                    }
+                    break;
+
+                case TRAILER_UNAVAILABLE:
+                    Toast.makeText(requireContext(), R.string.error_trailer_unavailable, Toast.LENGTH_SHORT).show();
+                    break;
+
+                case NETWORK_ERROR:
+                    Toast.makeText(requireContext(), R.string.error_network, Toast.LENGTH_SHORT).show();
+                    break;
+
+                case INVALID_MOVIE_ID:
+                    Toast.makeText(requireContext(), R.string.error_missing_movie_id, Toast.LENGTH_SHORT).show();
+                    break;
+            }
+
+            viewModel.clearTrailerEvent();
+        });
 
         return new AlertDialog.Builder(requireContext())
                 .setView(view)
@@ -338,48 +360,6 @@ public class MovieDetailsDialogFragment extends DialogFragment {
         return Math.max(min, Math.min(max, v));
     }
 
-    private void fetchAndOpenTrailer(int movieId, @NonNull MaterialButton trailerBtn) {
-        if (movieId <= 0) {
-            Toast.makeText(requireContext(), R.string.error_missing_movie_id, Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        setTrailerLoading(trailerBtn, true);
-
-        MovieApiService api = RetrofitInstance.getService();
-        String apiKey = BuildConfig.TMDB_API_KEY;
-
-        api.getMovieVideos(movieId, apiKey).enqueue(new Callback<TrailerResponse>() {
-            @Override
-            public void onResponse(
-                    @NonNull Call<TrailerResponse> call,
-                    @NonNull Response<TrailerResponse> response
-            ) {
-                setTrailerLoading(trailerBtn, false);
-
-                TrailerResponse body = response.body();
-                if (!response.isSuccessful() || body == null || body.getResults() == null) {
-                    Toast.makeText(requireContext(), R.string.error_trailer_unavailable, Toast.LENGTH_SHORT).show();
-                    return;
-                }
-
-                String key = pickBestYouTubeKey(body);
-                if (key == null) {
-                    Toast.makeText(requireContext(), R.string.error_trailer_unavailable, Toast.LENGTH_SHORT).show();
-                    return;
-                }
-
-                openTrailer(key);
-            }
-
-            @Override
-            public void onFailure(@NonNull Call<TrailerResponse> call, @NonNull Throwable t) {
-                setTrailerLoading(trailerBtn, false);
-                Toast.makeText(requireContext(), R.string.error_network, Toast.LENGTH_SHORT).show();
-            }
-        });
-    }
-
     private void setTrailerLoading(@NonNull MaterialButton trailerBtn, boolean loading) {
         trailerBtn.setEnabled(!loading);
         trailerBtn.setAlpha(loading ? 0.6f : 1f);
@@ -456,24 +436,6 @@ public class MovieDetailsDialogFragment extends DialogFragment {
         } catch (ActivityNotFoundException e) {
             context.startActivity(webIntent);
         }
-    }
-
-    @Nullable
-    private String pickBestYouTubeKey(@NonNull TrailerResponse body) {
-        for (Trailer t : body.getResults()) {
-            if ("YouTube".equalsIgnoreCase(t.getSite())
-                    && "Trailer".equalsIgnoreCase(t.getType())) {
-                return t.getKey();
-            }
-        }
-
-        for (Trailer t : body.getResults()) {
-            if ("YouTube".equalsIgnoreCase(t.getSite())) {
-                return t.getKey();
-            }
-        }
-
-        return null;
     }
 
     private int dpToPx(@NonNull View v, int dp) {
