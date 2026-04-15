@@ -1,5 +1,6 @@
 package com.geoffreysisco.filmatlas.repository;
 
+import com.geoffreysisco.filmatlas.BuildConfig;
 import com.geoffreysisco.filmatlas.model.AppDatabase;
 import com.geoffreysisco.filmatlas.model.GenreCacheEntity;
 import com.geoffreysisco.filmatlas.network.GenreDto;
@@ -27,8 +28,8 @@ public class GenresRepository {
         this.api = RetrofitInstance.getService();
     }
 
-    public void refreshGenres(String apiKey) {
-        api.getMovieGenres(apiKey).enqueue(new Callback<GenresResponse>() {
+    public void refreshGenres() {
+        api.getMovieGenres(BuildConfig.TMDB_API_KEY).enqueue(new Callback<GenresResponse>() {
             @Override
             public void onResponse(Call<GenresResponse> call, Response<GenresResponse> response) {
                 GenresResponse body = response.body();

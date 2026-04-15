@@ -10,7 +10,6 @@ import androidx.lifecycle.MediatorLiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.Observer;
 
-import com.geoffreysisco.filmatlas.BuildConfig;
 import com.geoffreysisco.filmatlas.model.AppDatabase;
 import com.geoffreysisco.filmatlas.model.GenreCacheEntity;
 import com.geoffreysisco.filmatlas.model.Movie;
@@ -195,7 +194,7 @@ public class MainActivityViewModel extends AndroidViewModel {
         genresLiveData = db.genreDao().observeAll();
 
         genresRepository = new GenresRepository(db);
-        genresRepository.refreshGenres(BuildConfig.TMDB_API_KEY);
+        genresRepository.refreshGenres();
     }
 
     @Override
