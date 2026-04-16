@@ -10,8 +10,7 @@ import androidx.lifecycle.MediatorLiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.Observer;
 
-import com.geoffreysisco.filmatlas.model.AppDatabase;
-import com.geoffreysisco.filmatlas.model.GenreCacheEntity;
+import com.geoffreysisco.filmatlas.model.Genre;
 import com.geoffreysisco.filmatlas.model.Movie;
 import com.geoffreysisco.filmatlas.model.MovieFilterOptions;
 import com.geoffreysisco.filmatlas.repository.FavoritesRepository;
@@ -28,7 +27,7 @@ import java.util.List;
  * - Browse paging lives in MovieRepository (single stream of "grid results")
  * - Search networking + paging + suggestions live in SearchRepository
  * - ViewModel owns UI policy + routing (DisplayMode, no-flash rules, restore behavior)
- * - Genres are cached in Room (GenreCacheEntity) for MovieFilterBottomSheet
+ * - Genres are cached in Room and exposed to UI as Genre models for MovieFilterBottomSheet
  *
  * IMPORTANT:
  * - MovieFilterOptions is NOT persisted in Room (ever). It is in-memory UI state only.
@@ -106,7 +105,7 @@ public class MainActivityViewModel extends AndroidViewModel {
 
     // Genres cache (Room)
 
-    private final LiveData<List<GenreCacheEntity>> genresLiveData;
+    private final LiveData<List<Genre>> genresLiveData;
 
     // Search state
 
@@ -189,11 +188,9 @@ public class MainActivityViewModel extends AndroidViewModel {
         searchRepoSuggestionsObserver = list -> suggestionsLiveData.postValue(list);
         searchRepository.getSuggestionsLiveData().observeForever(searchRepoSuggestionsObserver);
 
-        // Genres: ViewModel observes Room cache only; GenresRepository handles network refresh
-        AppDatabase db = AppDatabase.getInstance(application);
-        genresLiveData = db.genreDao().observeAll();
-
-        genresRepository = new GenresRepository(db);
+        // Genres: repository owns Room observation + network refresh
+        genresRepository = new GenresRepository(application);
+        genresLiveData = genresRepository.observeGenres();
         genresRepository.refreshGenres();
     }
 
@@ -276,7 +273,7 @@ public class MainActivityViewModel extends AndroidViewModel {
 
     // Genres (Room cache)
 
-    public LiveData<List<GenreCacheEntity>> getGenresLiveData() {
+    public LiveData<List<Genre>> getGenresLiveData() {
         return genresLiveData;
     }
 

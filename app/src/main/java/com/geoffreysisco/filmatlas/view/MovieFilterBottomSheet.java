@@ -13,7 +13,7 @@ import androidx.annotation.Nullable;
 import androidx.lifecycle.ViewModelProvider;
 
 import com.geoffreysisco.filmatlas.R;
-import com.geoffreysisco.filmatlas.model.GenreCacheEntity;
+import com.geoffreysisco.filmatlas.model.Genre;
 import com.geoffreysisco.filmatlas.model.MovieFilterOptions;
 import com.geoffreysisco.filmatlas.viewmodel.MainActivityViewModel;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
@@ -47,8 +47,8 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
     private MainActivityViewModel viewModel;
     private Callback callback;
 
-    // Backed by Room (genres table)
-    private List<GenreCacheEntity> genres = new ArrayList<>();
+    // Genres exposed by ViewModel for filter UI
+    private List<Genre> genres = new ArrayList<>();
     private boolean[] checked = new boolean[0];
 
     // View refs (needed for onSaveInstanceState)
@@ -179,7 +179,7 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
             updateClearVisibility.run();
         });
 
-        // Observe genres from Room and keep UI in sync (careful with restored edits)
+        // Observe genres from ViewModel and keep UI in sync (careful with restored edits)
         viewModel.getGenresLiveData().observe(getViewLifecycleOwner(), list -> {
             if (list == null) return;
 
@@ -332,7 +332,7 @@ public class MovieFilterBottomSheet extends BottomSheetDialogFragment {
         return sortChanged || genreChanged;
     }
 
-    private String formatSelectedGenres(List<GenreCacheEntity> genres, boolean[] checked) {
+    private String formatSelectedGenres(List<Genre> genres, boolean[] checked) {
         if (genres == null || genres.isEmpty() || checked == null) return "Any";
 
         StringBuilder sb = new StringBuilder();
