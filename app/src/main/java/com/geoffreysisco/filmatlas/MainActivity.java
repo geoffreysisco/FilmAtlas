@@ -40,6 +40,7 @@ import com.geoffreysisco.filmatlas.databinding.ActivityMainBinding;
 import com.geoffreysisco.filmatlas.model.Movie;
 import com.geoffreysisco.filmatlas.model.MovieActionPayload;
 import com.geoffreysisco.filmatlas.model.MovieFilterOptions;
+import com.geoffreysisco.filmatlas.model.Suggestion;
 import com.geoffreysisco.filmatlas.view.MovieAdapter;
 import com.geoffreysisco.filmatlas.view.MovieDetailsDialogFragment;
 import com.geoffreysisco.filmatlas.view.MovieFilterBottomSheet;
@@ -857,7 +858,11 @@ public class MainActivity extends AppCompatActivity
                 }
 
                 if (query.length() < 2) {
-                    hideSuggestions();
+                    viewModel.fetchSuggestions(query);
+
+                    if (suggestionsList != null) {
+                        suggestionsList.setVisibility(View.VISIBLE);
+                    }
                     return;
                 }
 
@@ -919,24 +924,15 @@ public class MainActivity extends AppCompatActivity
 
         suggestionsAdapter = new SearchSuggestionsAdapter(new SearchSuggestionsAdapter.Callback() {
             @Override
-            public void onSuggestionClicked(@NonNull Movie movie) {
+            public void onSuggestionClicked(@NonNull Suggestion suggestion) {
 
                 if (searchSuggestionsRunnable != null) {
                     searchHandler.removeCallbacks(searchSuggestionsRunnable);
                     searchSuggestionsRunnable = null;
                 }
 
-                String title = movie.getTitle();
-                if (title == null) title = "";
-                title = title.trim();
-
-                String year = movie.getReleaseYear();
-                if (year == null) year = "";
-                year = year.trim();
-
-                boolean isHistorySuggestion = (movie.getId() != null && movie.getId() == -1);
-
-                String label = year.isEmpty() ? title : (title + " " + year);
+                String label = suggestion.getDisplayLabel();
+                String query = suggestion.getQueryLabel();
 
                 suppressSuggestionFetch = true;
                 input.setText(label);
@@ -947,11 +943,7 @@ public class MainActivity extends AppCompatActivity
                     rememberLastPlaceBeforeSearch();
                 }
 
-                if (isHistorySuggestion) {
-                    viewModel.setQuery(title);
-                } else {
-                    viewModel.setQuery(label);
-                }
+                viewModel.setQuery(query);
 
                 hideSuggestions();
                 hideKeyboard(input);
@@ -959,8 +951,13 @@ public class MainActivity extends AppCompatActivity
             }
 
             @Override
-            public void onSuggestionRemoveClicked(@NonNull Movie movie) {
-                viewModel.removeSearchHistoryEntry(movie.getTitle());
+            public void onSuggestionRemoveClicked(@NonNull Suggestion suggestion) {
+                if (!suggestion.isHistory()) return;
+
+                String label = suggestion.getText();
+                if (label == null) return;
+
+                viewModel.removeSearchHistoryEntry(label);
             }
         });
 
@@ -2527,7 +2524,6 @@ public class MainActivity extends AppCompatActivity
     }
 
     private void hideSuggestions() {
-        viewModel.clearSuggestions();
         if (suggestionsList != null) suggestionsList.setVisibility(View.GONE);
     }
 

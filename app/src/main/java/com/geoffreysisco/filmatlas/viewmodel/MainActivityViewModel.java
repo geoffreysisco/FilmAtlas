@@ -1,6 +1,7 @@
 package com.geoffreysisco.filmatlas.viewmodel;
 
 import android.app.Application;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -13,6 +14,7 @@ import androidx.lifecycle.Observer;
 import com.geoffreysisco.filmatlas.model.Genre;
 import com.geoffreysisco.filmatlas.model.Movie;
 import com.geoffreysisco.filmatlas.model.MovieFilterOptions;
+import com.geoffreysisco.filmatlas.model.Suggestion;
 import com.geoffreysisco.filmatlas.repository.FavoritesRepository;
 import com.geoffreysisco.filmatlas.repository.GenresRepository;
 import com.geoffreysisco.filmatlas.repository.MovieRepository;
@@ -109,6 +111,7 @@ public class MainActivityViewModel extends AndroidViewModel {
 
     // Search state
 
+    private String lastSuggestionQuery = "";
     private String lastSearchQuery = "";
     private String lastSearchLabel = "";
     private Integer lastSearchYear = null;
@@ -117,7 +120,7 @@ public class MainActivityViewModel extends AndroidViewModel {
 
     // Autocomplete suggestions
 
-    private final MutableLiveData<List<Movie>> suggestionsLiveData =
+    private final MutableLiveData<List<Suggestion>> suggestionsLiveData =
             new MutableLiveData<>(new ArrayList<>());
 
     // Search history (Room)
@@ -185,7 +188,31 @@ public class MainActivityViewModel extends AndroidViewModel {
         };
         searchRepository.getLoadingLiveData().observeForever(searchRepoLoadingObserver);
 
-        searchRepoSuggestionsObserver = list -> suggestionsLiveData.postValue(list);
+        searchRepoSuggestionsObserver = list -> {
+            ArrayList<Suggestion> historyItems = buildHistorySuggestions(lastSuggestionQuery);
+            ArrayList<Suggestion> merged = new ArrayList<>();
+
+            if (!historyItems.isEmpty()) {
+                merged.add(Suggestion.header(Suggestion.HeaderKind.RECENT_SEARCHES));
+                merged.addAll(historyItems);
+            }
+
+            ArrayList<Suggestion> movieItems = new ArrayList<>();
+            if (list != null) {
+                for (Movie m : list) {
+                    if (m == null) continue;
+                    movieItems.add(Suggestion.movie(m));
+                }
+            }
+
+            if (!movieItems.isEmpty()) {
+                merged.add(Suggestion.header(Suggestion.HeaderKind.SUGGESTIONS));
+                merged.addAll(movieItems);
+            }
+
+            suggestionsLiveData.postValue(merged);
+        };
+
         searchRepository.getSuggestionsLiveData().observeForever(searchRepoSuggestionsObserver);
 
         // Genres: repository owns Room observation + network refresh
@@ -267,7 +294,7 @@ public class MainActivityViewModel extends AndroidViewModel {
         return searchMode;
     }
 
-    public LiveData<List<Movie>> getSuggestionsLiveData() {
+    public LiveData<List<Suggestion>> getSuggestionsLiveData() {
         return suggestionsLiveData;
     }
 
@@ -465,34 +492,17 @@ public class MainActivityViewModel extends AndroidViewModel {
     // Suggestions
     public void fetchSuggestions(@NonNull String raw) {
         String q = (raw == null) ? "" : raw.trim();
+        lastSuggestionQuery = q;
 
         if (q.isEmpty()) {
             searchRepository.cancelSuggestionsCall();
-
-            List<String> history = recentSearchQueriesLiveData.getValue();
-            ArrayList<Movie> pseudo = new ArrayList<>();
-
-            if (history != null) {
-                for (String h : history) {
-                    if (h == null) continue;
-
-                    String label = h.trim();
-                    if (label.isEmpty()) continue;
-
-                    Movie m = new Movie();
-                    m.setId(-1);        // Sentinel: this row is a history entry, not a real TMDB movie
-                    m.setTitle(label);  // Store EXACT label the user searched for
-                    pseudo.add(m);
-                }
-            }
-
-            suggestionsLiveData.setValue(pseudo);
+            suggestionsLiveData.setValue(buildHistorySection(""));
             return;
         }
 
         if (q.length() < 2) {
-            suggestionsLiveData.setValue(new ArrayList<>());
             searchRepository.cancelSuggestionsCall();
+            suggestionsLiveData.setValue(buildHistorySection(q));
             return;
         }
 
@@ -568,7 +578,43 @@ public class MainActivityViewModel extends AndroidViewModel {
 
         String label = (lastSearchLabel == null) ? "" : lastSearchLabel.trim();
         if (!label.isEmpty()) {
+            Log.d("SEARCH_HISTORY", "recordQuery label=[" + label + "]");
             searchHistoryRepository.recordQuery(label);
         }
+    }
+
+    @NonNull
+    private ArrayList<Suggestion> buildHistorySuggestions(@NonNull String rawQuery) {
+        String q = (rawQuery == null) ? "" : rawQuery.trim().toLowerCase();
+        List<String> history = recentSearchQueriesLiveData.getValue();
+        ArrayList<Suggestion> items = new ArrayList<>();
+
+        if (history == null) return items;
+
+        for (String h : history) {
+            if (h == null) continue;
+
+            String label = h.trim();
+            if (label.isEmpty()) continue;
+
+            if (!q.isEmpty() && !label.toLowerCase().contains(q)) continue;
+
+            items.add(Suggestion.history(label));
+        }
+
+        return items;
+    }
+
+    @NonNull
+    private ArrayList<Suggestion> buildHistorySection(@NonNull String rawQuery) {
+        ArrayList<Suggestion> historyItems = buildHistorySuggestions(rawQuery);
+        ArrayList<Suggestion> section = new ArrayList<>();
+
+        if (!historyItems.isEmpty()) {
+            section.add(Suggestion.header(Suggestion.HeaderKind.RECENT_SEARCHES));
+            section.addAll(historyItems);
+        }
+
+        return section;
     }
 }
