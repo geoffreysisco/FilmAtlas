@@ -1035,11 +1035,8 @@ public class MainActivity extends AppCompatActivity
             }
 
             String text = (input.getText() == null) ? "" : input.getText().toString().trim();
-            if (text.isEmpty()) {
-                // Empty query → show recent search history suggestions immediately
-                viewModel.fetchSuggestions("");
-                if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
-            }
+            viewModel.fetchSuggestions(text);
+            if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
         });
     }
 
@@ -1400,8 +1397,10 @@ public class MainActivity extends AppCompatActivity
 
         viewModel.getSuggestionsLiveData().observe(this, list -> {
 
-            boolean has = list != null && !list.isEmpty();
-            if (has) {
+            boolean shouldShowSuggestions =
+                    list != null && !list.isEmpty() && input != null && input.hasFocus();
+
+            if (shouldShowSuggestions) {
                 suggestionsAdapter.submit(list);
                 if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
             } else {

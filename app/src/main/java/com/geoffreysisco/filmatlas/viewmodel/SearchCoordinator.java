@@ -22,7 +22,7 @@ public class SearchCoordinator {
 
     private final LiveData<List<String>> recentSearchQueriesLiveData;
     private final MutableLiveData<List<Suggestion>> suggestionsLiveData =
-            new MutableLiveData<>(new ArrayList<>());
+            new MutableLiveData<>();
 
     private final Observer<List<Movie>> searchRepoSuggestionsObserver;
     private final Observer<List<String>> recentSearchQueriesObserver;
@@ -43,6 +43,7 @@ public class SearchCoordinator {
         this.recentSearchQueriesLiveData = searchHistoryRepository.observeRecentQueries(10);
 
         searchRepoSuggestionsObserver = list -> {
+            if (!suggestionsSessionActive) return;
             ArrayList<Suggestion> historyItems = buildHistorySuggestions(lastSuggestionQuery);
             ArrayList<Suggestion> merged = new ArrayList<>();
 
