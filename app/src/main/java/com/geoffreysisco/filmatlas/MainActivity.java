@@ -290,13 +290,13 @@ public class MainActivity extends AppCompatActivity
             String pillText =
                     savedInstanceState.getString(KEY_SEARCH_PILL_TEXT, "");
 
-            if (wasInSearch) {
+            boolean wasFocused =
+                    savedInstanceState.getBoolean(KEY_WAS_SEARCH_PILL_FOCUSED, false);
 
-                restoringSearchUi = true;   // ← move it HERE
+            if (wasInSearch || wasFocused) {
+                restoringSearchUi = true;
 
                 viewModel.restoreSearchUiStateOnly();
-
-                boolean wasFocused = savedInstanceState.getBoolean(KEY_WAS_SEARCH_PILL_FOCUSED, false);
 
                 if (input != null) {
                     input.setText(pillText);
@@ -306,10 +306,22 @@ public class MainActivity extends AppCompatActivity
                         clear.setVisibility(pillText.isEmpty() ? View.GONE : View.VISIBLE);
                     }
 
-                    if (wasFocused && !pillText.isEmpty()) {
+                    if (wasFocused) {
                         input.requestFocus();
-                        viewModel.fetchSuggestions(""); // show history list again
-                        if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
+
+                        input.post(() -> {
+                            try {
+                                if (input.hasFocus()) {
+                                    String textNow = (input.getText() == null) ? "" : input.getText().toString().trim();
+                                    if (textNow.isEmpty()) {
+                                        viewModel.fetchSuggestions("");
+                                        if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
+                                    }
+                                }
+                            } finally {
+                                restoringSearchUi = false;
+                            }
+                        });
                     } else {
                         input.clearFocus();
                         if (suggestionsList != null) suggestionsList.setVisibility(View.GONE);
@@ -873,10 +885,14 @@ public class MainActivity extends AppCompatActivity
 
         if (clear != null) {
             clear.setOnClickListener(v -> {
+                if (input == null) return;
+
                 if (searchSuggestionsRunnable != null) {
                     searchHandler.removeCallbacks(searchSuggestionsRunnable);
                     searchSuggestionsRunnable = null;
                 }
+
+                boolean hadFocusBeforeClear = input.hasFocus();
 
                 suppressSuggestionFetch = true;
                 input.setText("");
@@ -885,14 +901,13 @@ public class MainActivity extends AppCompatActivity
                 hideSuggestions();
                 viewModel.clearSearchResultsOnly();
 
-                // Clearing the pill does NOT mean leaving search.
-                // If the pill is focused and empty, restore recent history suggestions immediately.
-                viewModel.fetchSuggestions("");
-                if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
+                if (hadFocusBeforeClear) {
+                    input.requestFocus();
+                    showKeyboard(input);
 
-                input.requestFocus();
-                showKeyboard(input);
-
+                    viewModel.fetchSuggestions("");
+                    if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
+                }
             });
         }
 
@@ -1370,7 +1385,7 @@ public class MainActivity extends AppCompatActivity
             movieAdapter.setFavoriteIds(ids);
         });
 
-        viewModel.getLoading().observe(this, loading -> {
+        viewModel.getLoadingLiveData().observe(this, loading -> {
             updateEmptyState();
         });
 
@@ -2239,7 +2254,7 @@ public class MainActivity extends AppCompatActivity
             return;
         }
 
-        Boolean loadingObj = viewModel.getLoading().getValue();
+        Boolean loadingObj = viewModel.getLoadingLiveData().getValue();
         boolean loading = Boolean.TRUE.equals(loadingObj);
 
         List<Movie> current = viewModel.getDisplayMovies().getValue();
@@ -2377,7 +2392,7 @@ public class MainActivity extends AppCompatActivity
 
         if (!inSearch && uiMode != UiMode.BROWSE) return;
 
-        boolean loading = Boolean.TRUE.equals(viewModel.getLoading().getValue());
+        boolean loading = Boolean.TRUE.equals(viewModel.getLoadingLiveData().getValue());
 
         boolean empty = viewModel.getDisplayMovies().getValue() == null
                 || viewModel.getDisplayMovies().getValue().isEmpty();
