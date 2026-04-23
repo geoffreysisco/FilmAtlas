@@ -12,7 +12,6 @@ import android.os.Looper;
 import android.os.Parcelable;
 import android.text.Editable;
 import android.text.TextWatcher;
-import android.util.Log;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
@@ -291,19 +290,28 @@ public class MainActivity extends AppCompatActivity
             String pillText =
                     savedInstanceState.getString(KEY_SEARCH_PILL_TEXT, "");
 
-            boolean wasFocused =
-                    savedInstanceState.getBoolean(KEY_WAS_SEARCH_PILL_FOCUSED, false);
+            boolean wasFocused = savedInstanceState.getBoolean(KEY_WAS_SEARCH_PILL_FOCUSED, false);
 
-            Log.d("BUGE", "saved wasInSearch=" + wasInSearch + " wasFocused=" + wasFocused + " pillText=" + pillText);
-
+            // IMPORTANT:
+            // wasFocused alone must NOT restore search mode.
+            // Only committed search (wasInSearch) should restore DisplayMode.SEARCH.
+            // Draft/focus-only restore must preserve underlying nav mode (Favorites/Filter)
+            // and must NOT trigger search results or search empty state.
             if (wasInSearch || wasFocused) {
                 restoringSearchUi = true;
 
-                viewModel.restoreSearchUiStateOnly();
+                if (wasInSearch) {
+                    viewModel.restoreSearchUiStateOnly();
+                }
+
+                if (selectedNavIndex == NAV_FAVORITES) {
+                    enterFavoritesMode();
+                } else if (selectedNavIndex == NAV_FILTER) {
+                    enterFilterMode(false, false);
+                }
 
                 if (input != null) {
                     input.setText(pillText);
-                    Log.d("BUGE", "restore setText=" + pillText);
                     input.setSelection(pillText.length());
 
                     if (clear != null) {
@@ -327,18 +335,17 @@ public class MainActivity extends AppCompatActivity
                     } else {
                         input.clearFocus();
                         if (suggestionsList != null) suggestionsList.setVisibility(View.GONE);
+                        restoringSearchUi = false;
                     }
+                } else {
+                    restoringSearchUi = false;
                 }
-
-                restoringSearchUi = false;
             }
 
             if (input != null && clear != null) {
                 input.post(() -> {
                     String textNow = (input.getText() == null) ? "" : input.getText().toString();
-                    Log.d("BUGE", "posted resync textNow=" + textNow);
                     clear.setVisibility(textNow.isEmpty() ? View.GONE : View.VISIBLE);
-                    Log.d("BUGE", "posted resync set clear=" + (textNow.isEmpty() ? "GONE" : "VISIBLE"));
                 });
             }
         }
@@ -441,8 +448,6 @@ public class MainActivity extends AppCompatActivity
                         savedInstanceState.getBoolean(KEY_WAS_SEARCH_PILL_FOCUSED, false);
 
                 if (!wasInSearch && !wasSearchPillFocused) {
-
-                    Log.d("BUGA", "restore selectNavIndex nav=" + selectedNavIndex + " wasInSearch=false wasFocused=false");
                     selectNavIndex(selectedNavIndex, false);
 
                     if (restoringBrowseUi) {
@@ -873,7 +878,6 @@ public class MainActivity extends AppCompatActivity
                 if (restoringSearchUi) return;
 
                 String query = (s == null) ? "" : s.toString().trim();
-                Log.d("BUGE", "onTextChanged query=" + query);
 
                 if (clear != null) {
                     clear.setVisibility(query.isEmpty() ? View.GONE : View.VISIBLE);
@@ -1065,9 +1069,15 @@ public class MainActivity extends AppCompatActivity
         applyTabPipes(modeTabs);
         applyTabPipes(unifiedTabs);
 
-        setMainTabsVisualsEnabled(true);
-        setModeTabsVisualsEnabled(false);
-        clearModeTabsSelection();
+        if (selectedNavIndex == NAV_FAVORITES || selectedNavIndex == NAV_FILTER) {
+            setMainTabsVisualsEnabled(false);
+            clearMainTabsSelection();
+            setModeTabsVisualsEnabled(true);
+        } else {
+            setMainTabsVisualsEnabled(true);
+            setModeTabsVisualsEnabled(false);
+            clearModeTabsSelection();
+        }
 
     }
 
@@ -1171,6 +1181,20 @@ public class MainActivity extends AppCompatActivity
         modeTabsNormalTextColor = (modeTabsTextColors != null)
                 ? modeTabsTextColors.getDefaultColor()
                 : 0;
+
+        int safeModeTab = -1;
+        if (selectedNavIndex == NAV_FAVORITES) {
+            safeModeTab = MODE_TAB_FAVORITES;
+        } else if (selectedNavIndex == NAV_FILTER) {
+            safeModeTab = MODE_TAB_FILTER;
+        }
+
+        if (safeModeTab >= 0 && safeModeTab < modeTabs.getTabCount()) {
+            restoringTabs = true;
+            TabLayout.Tab restored = modeTabs.getTabAt(safeModeTab);
+            if (restored != null) restored.select();
+            restoringTabs = false;
+        }
 
         modeTabs.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override
@@ -1593,7 +1617,6 @@ public class MainActivity extends AppCompatActivity
     }
 
     private void enterFavoritesMode() {
-        Log.d("BUGA", "enterFavoritesMode");
         // Remember where we came from (for Back behavior).
         if (mainTabs != null) {
             int pos = mainTabs.getSelectedTabPosition();
@@ -2496,7 +2519,6 @@ public class MainActivity extends AppCompatActivity
     // --- Search UI helpers ---
 
     private void clearSearchBarUi() {
-        Log.d("BUGE", "clearSearchBarUi");
         if (input == null) return;
 
         suppressSuggestionFetch = true;

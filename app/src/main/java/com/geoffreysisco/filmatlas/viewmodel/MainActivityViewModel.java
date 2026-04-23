@@ -313,7 +313,9 @@ public class MainActivityViewModel extends AndroidViewModel {
     }
 
     public void restoreSearchUiStateOnly() {
+        searchMode.setValue(true);
         displayMode.setValue(DisplayMode.SEARCH);
+        searchCoordinator.clearSearchResultsOnly();
     }
 
     // Suggestions
