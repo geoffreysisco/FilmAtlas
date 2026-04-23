@@ -1177,7 +1177,9 @@ public class MainActivity extends AppCompatActivity
             public void onTabSelected(TabLayout.Tab tab) {
                 if (restoringTabs) return;
 
-                exitSearchUiAndMode();
+                if (isInSearchMode()) {
+                    exitSearchUiAndMode();
+                }
 
                 if (tab.getPosition() == MODE_TAB_FAVORITES) {
                     enterFavoritesMode();
@@ -1251,7 +1253,7 @@ public class MainActivity extends AppCompatActivity
 
                 int nav = tab.getPosition(); // unifiedTabs is already 0–4 in order
 
-                if (nav == NAV_FILTER && isInSearchMode()) {
+                if (isInSearchMode()) {
                     exitSearchUiAndMode();
                 }
 
@@ -1463,11 +1465,6 @@ public class MainActivity extends AppCompatActivity
             exitSearchUiAndMode();
         }
 
-        // Defensive: if we're moving into browse, the pill should never retain stale text.
-        if (!restoringSearchState && navIndex <= NAV_NEW) {
-            clearSearchBarUi();
-        }
-
         if (input != null) input.clearFocus();
 
         selectedNavIndex = navIndex;
@@ -1605,7 +1602,6 @@ public class MainActivity extends AppCompatActivity
             lastBrowseTabIndex = selectedTabIndex;
         }
 
-        exitSearchUiAndMode();
         uiMode = UiMode.FAVORITES;
 
         selectedNavIndex = NAV_FAVORITES;
