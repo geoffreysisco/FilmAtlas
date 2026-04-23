@@ -12,6 +12,7 @@ import android.os.Looper;
 import android.os.Parcelable;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.util.Log;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.View;
@@ -293,6 +294,8 @@ public class MainActivity extends AppCompatActivity
             boolean wasFocused =
                     savedInstanceState.getBoolean(KEY_WAS_SEARCH_PILL_FOCUSED, false);
 
+            Log.d("BUGE", "saved wasInSearch=" + wasInSearch + " wasFocused=" + wasFocused + " pillText=" + pillText);
+
             if (wasInSearch || wasFocused) {
                 restoringSearchUi = true;
 
@@ -300,6 +303,7 @@ public class MainActivity extends AppCompatActivity
 
                 if (input != null) {
                     input.setText(pillText);
+                    Log.d("BUGE", "restore setText=" + pillText);
                     input.setSelection(pillText.length());
 
                     if (clear != null) {
@@ -313,10 +317,8 @@ public class MainActivity extends AppCompatActivity
                             try {
                                 if (input.hasFocus()) {
                                     String textNow = (input.getText() == null) ? "" : input.getText().toString().trim();
-                                    if (textNow.isEmpty()) {
-                                        viewModel.fetchSuggestions("");
-                                        if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
-                                    }
+                                    viewModel.fetchSuggestions(textNow);
+                                    if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
                                 }
                             } finally {
                                 restoringSearchUi = false;
@@ -329,6 +331,15 @@ public class MainActivity extends AppCompatActivity
                 }
 
                 restoringSearchUi = false;
+            }
+
+            if (input != null && clear != null) {
+                input.post(() -> {
+                    String textNow = (input.getText() == null) ? "" : input.getText().toString();
+                    Log.d("BUGE", "posted resync textNow=" + textNow);
+                    clear.setVisibility(textNow.isEmpty() ? View.GONE : View.VISIBLE);
+                    Log.d("BUGE", "posted resync set clear=" + (textNow.isEmpty() ? "GONE" : "VISIBLE"));
+                });
             }
         }
 
@@ -426,8 +437,12 @@ public class MainActivity extends AppCompatActivity
                 boolean wasInSearch =
                         savedInstanceState.getBoolean(KEY_WAS_IN_SEARCH_MODE, false);
 
-                if (!wasInSearch) {
+                boolean wasSearchPillFocused =
+                        savedInstanceState.getBoolean(KEY_WAS_SEARCH_PILL_FOCUSED, false);
 
+                if (!wasInSearch && !wasSearchPillFocused) {
+
+                    Log.d("BUGA", "restore selectNavIndex nav=" + selectedNavIndex + " wasInSearch=false wasFocused=false");
                     selectNavIndex(selectedNavIndex, false);
 
                     if (restoringBrowseUi) {
@@ -858,6 +873,7 @@ public class MainActivity extends AppCompatActivity
                 if (restoringSearchUi) return;
 
                 String query = (s == null) ? "" : s.toString().trim();
+                Log.d("BUGE", "onTextChanged query=" + query);
 
                 if (clear != null) {
                     clear.setVisibility(query.isEmpty() ? View.GONE : View.VISIBLE);
@@ -892,8 +908,6 @@ public class MainActivity extends AppCompatActivity
                     searchSuggestionsRunnable = null;
                 }
 
-                boolean hadFocusBeforeClear = input.hasFocus();
-
                 suppressSuggestionFetch = true;
                 input.setText("");
                 suppressSuggestionFetch = false;
@@ -901,13 +915,11 @@ public class MainActivity extends AppCompatActivity
                 hideSuggestions();
                 viewModel.clearSearchResultsOnly();
 
-                if (hadFocusBeforeClear) {
-                    input.requestFocus();
-                    showKeyboard(input);
+                input.requestFocus();
+                showKeyboard(input);
 
-                    viewModel.fetchSuggestions("");
-                    if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
-                }
+                viewModel.fetchSuggestions("");
+                if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
             });
         }
 
@@ -1584,7 +1596,7 @@ public class MainActivity extends AppCompatActivity
     }
 
     private void enterFavoritesMode() {
-
+        Log.d("BUGA", "enterFavoritesMode");
         // Remember where we came from (for Back behavior).
         if (mainTabs != null) {
             int pos = mainTabs.getSelectedTabPosition();
@@ -2488,6 +2500,7 @@ public class MainActivity extends AppCompatActivity
     // --- Search UI helpers ---
 
     private void clearSearchBarUi() {
+        Log.d("BUGE", "clearSearchBarUi");
         if (input == null) return;
 
         suppressSuggestionFetch = true;
