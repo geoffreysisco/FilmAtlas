@@ -1,10 +1,8 @@
 package com.geoffreysisco.filmatlas.viewmodel;
 
 import android.app.Application;
-import android.util.Log;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MediatorLiveData;
@@ -21,7 +19,6 @@ import com.geoffreysisco.filmatlas.repository.MovieRepository;
 import com.geoffreysisco.filmatlas.repository.SearchHistoryRepository;
 import com.geoffreysisco.filmatlas.repository.SearchRepository;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -40,7 +37,9 @@ import java.util.List;
  */
 public class MainActivityViewModel extends AndroidViewModel {
 
-    // Display mode routing
+    // =====================
+    // Nested types
+    // =====================
 
     private enum DisplayMode {
         BROWSE,
@@ -48,47 +47,30 @@ public class MainActivityViewModel extends AndroidViewModel {
         FILTER
     }
 
-    public enum TrailerEventType {
-        OPEN_TRAILER,
-        TRAILER_UNAVAILABLE,
-        NETWORK_ERROR,
-        INVALID_MOVIE_ID
-    }
+    // =====================
+    // Instance variables
+    // =====================
 
-    public static final class TrailerEvent {
-        @NonNull public final TrailerEventType type;
-        @Nullable public final String youtubeKey;
-
-        public TrailerEvent(@NonNull TrailerEventType type, @Nullable String youtubeKey) {
-            this.type = type;
-            this.youtubeKey = youtubeKey;
-        }
-    }
-
+    // Display mode routing
     private final MutableLiveData<DisplayMode> displayMode =
             new MutableLiveData<>(DisplayMode.BROWSE);
 
     // Repos / services
-
     private final MovieRepository movieRepository;
     private final FavoritesRepository favoritesRepository;
-    private final SearchRepository searchRepository;
     private final GenresRepository genresRepository;
-
-    private final SearchHistoryRepository searchHistoryRepository;
+    private final TrailerCoordinator trailerCoordinator;
+    private final SearchCoordinator searchCoordinator;
+    private final FilterCoordinator filterCoordinator;
 
     // Streams
-
     private final MediatorLiveData<List<Movie>> displayMovies = new MediatorLiveData<>();
 
     // Repo browse stream (used by BROWSE and FILTER)
     private final LiveData<List<Movie>> browseLiveData;
 
-    // Loading: mirrors MovieRepository when not searching; mirrors SearchRepository when searching
+    // Loading: mirrors MovieRepository when not searching; mirrors SearchCoordinator when searching
     private final MutableLiveData<Boolean> loadingLiveData = new MutableLiveData<>(false);
-
-    private final MutableLiveData<Boolean> trailerLoadingLiveData = new MutableLiveData<>(false);
-    private final MutableLiveData<TrailerEvent> trailerEventLiveData = new MutableLiveData<>(null);
 
     // Search mode flag (Activity depends on this existing)
     private final MutableLiveData<Boolean> searchMode = new MutableLiveData<>(false);
@@ -96,68 +78,26 @@ public class MainActivityViewModel extends AndroidViewModel {
     // observeForever observers (stored so they can be removed in onCleared() to avoid leaks)
     private final Observer<Boolean> repoLoadingObserver;
     private final Observer<Boolean> searchRepoLoadingObserver;
-    private final Observer<List<Movie>> searchRepoSuggestionsObserver;
-
-    // Filter state (IN-MEMORY ONLY)
-
-    private final MutableLiveData<MovieFilterOptions> activeMovieFilterOptions =
-            new MutableLiveData<>(MovieFilterOptions.defaults());
-
-    private boolean movieFilterApplied = false;
 
     // Genres cache (Room)
-
     private final LiveData<List<Genre>> genresLiveData;
 
-    // Search state
-
-    private String lastSuggestionQuery = "";
-    private String lastSearchQuery = "";
-    private String lastSearchLabel = "";
-    private Integer lastSearchYear = null;
-
-    private boolean searchHistoryRecordedThisSession = false;
-
-    // Autocomplete suggestions
-
-    private final MutableLiveData<List<Suggestion>> suggestionsLiveData =
-            new MutableLiveData<>(new ArrayList<>());
-
-    // Search history (Room)
-
-    private final LiveData<List<String>> recentSearchQueriesLiveData;
-
-    public LiveData<List<String>> getRecentSearchQueries() {
-        return recentSearchQueriesLiveData;
-    }
-
-    // Filter UI events (Activity shows empty state)
-
-    private final MutableLiveData<Boolean> filterEmptyStateEvent = new MutableLiveData<>(false);
-
-    public LiveData<Boolean> getFilterEmptyStateEvent() {
-        return filterEmptyStateEvent;
-    }
-
-    public void requestShowFilterEmptyState() {
-        filterEmptyStateEvent.setValue(true);
-    }
-
-    public void requestShowFilterEmptyState(boolean show) {
-        filterEmptyStateEvent.setValue(show);
-    }
-
+    // =====================
     // Constructor
+    // =====================
 
     public MainActivityViewModel(@NonNull Application application) {
         super(application);
 
         movieRepository = new MovieRepository(application);
-        searchRepository = new SearchRepository(application);
         favoritesRepository = new FavoritesRepository(application);
 
-        searchHistoryRepository = new SearchHistoryRepository(application);
-        recentSearchQueriesLiveData = searchHistoryRepository.observeRecentQueries(10);
+        SearchRepository searchRepository = new SearchRepository(application);
+        SearchHistoryRepository searchHistoryRepository = new SearchHistoryRepository(application);
+
+        filterCoordinator = new FilterCoordinator();
+        trailerCoordinator = new TrailerCoordinator(movieRepository);
+        searchCoordinator = new SearchCoordinator(searchRepository, searchHistoryRepository);
 
         browseLiveData = movieRepository.getBrowseLiveData();
 
@@ -168,7 +108,7 @@ public class MainActivityViewModel extends AndroidViewModel {
             }
         });
 
-        displayMovies.addSource(searchRepository.getSearchLiveData(), list -> {
+        displayMovies.addSource(searchCoordinator.getSearchResultsLiveData(), list -> {
             if (displayMode.getValue() == DisplayMode.SEARCH) {
                 displayMovies.setValue(list);
             }
@@ -186,34 +126,7 @@ public class MainActivityViewModel extends AndroidViewModel {
                 loadingLiveData.postValue(isLoading);
             }
         };
-        searchRepository.getLoadingLiveData().observeForever(searchRepoLoadingObserver);
-
-        searchRepoSuggestionsObserver = list -> {
-            ArrayList<Suggestion> historyItems = buildHistorySuggestions(lastSuggestionQuery);
-            ArrayList<Suggestion> merged = new ArrayList<>();
-
-            if (!historyItems.isEmpty()) {
-                merged.add(Suggestion.header(Suggestion.HeaderKind.RECENT_SEARCHES));
-                merged.addAll(historyItems);
-            }
-
-            ArrayList<Suggestion> movieItems = new ArrayList<>();
-            if (list != null) {
-                for (Movie m : list) {
-                    if (m == null) continue;
-                    movieItems.add(Suggestion.movie(m));
-                }
-            }
-
-            if (!movieItems.isEmpty()) {
-                merged.add(Suggestion.header(Suggestion.HeaderKind.SUGGESTIONS));
-                merged.addAll(movieItems);
-            }
-
-            suggestionsLiveData.postValue(merged);
-        };
-
-        searchRepository.getSuggestionsLiveData().observeForever(searchRepoSuggestionsObserver);
+        searchCoordinator.getSearchLoadingLiveData().observeForever(searchRepoLoadingObserver);
 
         // Genres: repository owns Room observation + network refresh
         genresRepository = new GenresRepository(application);
@@ -221,18 +134,11 @@ public class MainActivityViewModel extends AndroidViewModel {
         genresRepository.refreshGenres();
     }
 
-    @Override
-    protected void onCleared() {
-        super.onCleared();
-
-        movieRepository.getLoadingLiveData().removeObserver(repoLoadingObserver);
-        searchRepository.getLoadingLiveData().removeObserver(searchRepoLoadingObserver);
-        searchRepository.getSuggestionsLiveData().removeObserver(searchRepoSuggestionsObserver);
-        searchRepository.cancelSuggestionsCall();
-    }
+    // =====================
+    // Public methods
+    // =====================
 
     // Primary UI streams
-
     public LiveData<List<Movie>> getDisplayMovies() {
         return displayMovies;
     }
@@ -241,82 +147,57 @@ public class MainActivityViewModel extends AndroidViewModel {
         return loadingLiveData;
     }
 
-    public LiveData<Boolean> getTrailerLoadingLiveData() {
-        return trailerLoadingLiveData;
-    }
-
-    public LiveData<TrailerEvent> getTrailerEventLiveData() {
-        return trailerEventLiveData;
-    }
-
-    public void clearTrailerEvent() {
-        trailerEventLiveData.setValue(null);
-    }
-
-    public void requestTrailer(int movieId) {
-        if (movieId <= 0) {
-            trailerEventLiveData.setValue(
-                    new TrailerEvent(TrailerEventType.INVALID_MOVIE_ID, null)
-            );
-            return;
-        }
-
-        trailerLoadingLiveData.setValue(true);
-
-        movieRepository.fetchBestTrailerKey(movieId, new MovieRepository.TrailerFetchCallback() {
-            @Override
-            public void onTrailerKeyReady(@NonNull String youtubeKey) {
-                trailerLoadingLiveData.postValue(false);
-                trailerEventLiveData.postValue(
-                        new TrailerEvent(TrailerEventType.OPEN_TRAILER, youtubeKey)
-                );
-            }
-
-            @Override
-            public void onNoTrailerFound() {
-                trailerLoadingLiveData.postValue(false);
-                trailerEventLiveData.postValue(
-                        new TrailerEvent(TrailerEventType.TRAILER_UNAVAILABLE, null)
-                );
-            }
-
-            @Override
-            public void onFetchFailed() {
-                trailerLoadingLiveData.postValue(false);
-                trailerEventLiveData.postValue(
-                        new TrailerEvent(TrailerEventType.NETWORK_ERROR, null)
-                );
-            }
-        });
-    }
-
     public LiveData<Boolean> isSearchMode() {
         return searchMode;
     }
 
-    public LiveData<List<Suggestion>> getSuggestionsLiveData() {
-        return suggestionsLiveData;
+    // Trailer
+    public LiveData<Boolean> getTrailerLoadingLiveData() {
+        return trailerCoordinator.getTrailerLoadingLiveData();
+    }
+
+    public LiveData<TrailerCoordinator.TrailerEvent> getTrailerEventLiveData() {
+        return trailerCoordinator.getTrailerEventLiveData();
+    }
+
+    public void clearTrailerEvent() {
+        trailerCoordinator.clearTrailerEvent();
+    }
+
+    public void requestTrailer(int movieId) {
+        trailerCoordinator.requestTrailer(movieId);
     }
 
     // Genres (Room cache)
-
     public LiveData<List<Genre>> getGenresLiveData() {
         return genresLiveData;
     }
 
-    // Filter API (IN-MEMORY ONLY)
+    // Filter UI events
+    public LiveData<Boolean> getFilterEmptyStateEvent() {
+        return filterCoordinator.getFilterEmptyStateEvent();
+    }
 
+    public void requestShowFilterEmptyState() {
+        filterCoordinator.requestShowFilterEmptyState();
+    }
+
+    public void requestShowFilterEmptyState(boolean show) {
+        filterCoordinator.requestShowFilterEmptyState(show);
+    }
+
+    // Filter API (IN-MEMORY ONLY)
     public LiveData<MovieFilterOptions> getActiveMovieFilterOptions() {
-        return activeMovieFilterOptions;
+        return filterCoordinator.getActiveMovieFilterOptions();
     }
 
     public boolean isMovieFilterApplied() {
-        return movieFilterApplied;
+        return filterCoordinator.isMovieFilterApplied();
     }
 
     // Restore-only: used by Activity state restore when we already have filter results on screen.
     public void restoreMovieFilterApplied(boolean applied) {
-        movieFilterApplied = applied;
+        filterCoordinator.restoreMovieFilterApplied(applied);
         if (applied) {
             displayMode.setValue(DisplayMode.FILTER);
         }
@@ -330,14 +211,12 @@ public class MainActivityViewModel extends AndroidViewModel {
     }
 
     public void applyMovieFilter(@NonNull MovieFilterOptions filter) {
-        MovieFilterOptions safe =
-                (filter == null) ? MovieFilterOptions.defaults() : filter.copy();
+        MovieFilterOptions safe = filter.copy();
 
         exitSearchModeInternal();
         displayMode.setValue(DisplayMode.FILTER);
 
-        activeMovieFilterOptions.setValue(safe);
-        movieFilterApplied = true;
+        filterCoordinator.markMovieFilterApplied(safe);
 
         movieRepository.clearBrowseResults();
         movieRepository.loadFirstPageMovieFiltered(safe, () -> {});
@@ -345,8 +224,7 @@ public class MainActivityViewModel extends AndroidViewModel {
 
     // Activity decides which browse tab to load next (Discover/Popular/New).
     public void clearMovieFilter() {
-        movieFilterApplied = false;
-        activeMovieFilterOptions.setValue(MovieFilterOptions.defaults());
+        filterCoordinator.clearMovieFilterState();
 
         exitSearchModeInternal();
         movieRepository.clearBrowseResults();
@@ -355,17 +233,12 @@ public class MainActivityViewModel extends AndroidViewModel {
     }
 
     // Browse passthroughs
-
     public void loadMore() {
         if (displayMode.getValue() == DisplayMode.SEARCH) {
             loadNextPageSearch();
             return;
         }
         movieRepository.loadNextPageBrowse(() -> {});
-    }
-
-    public LiveData<Boolean> getLoading() {
-        return getLoadingLiveData();
     }
 
     public void selectDiscover(boolean reselected) {
@@ -393,38 +266,22 @@ public class MainActivityViewModel extends AndroidViewModel {
     }
 
     // Search UI policy + routing (ViewModel-owned)
-    // Parses a trailing year for TMDB query params, but preserves the user's original label for history display.
     public void setQuery(@NonNull String query) {
-        String label = (query == null) ? "" : query.trim();
-        String raw = (query == null) ? "" : query.trim();
-
-        Integer year = null;
-
-        java.util.regex.Matcher mParen =
-                java.util.regex.Pattern.compile("\\((\\d{4})\\)\\s*$").matcher(raw);
-        if (mParen.find()) {
-            year = Integer.parseInt(mParen.group(1));
-            raw = raw.substring(0, mParen.start()).trim();
-        } else {
-            java.util.regex.Matcher mTrail =
-                    java.util.regex.Pattern.compile("\\b(\\d{4})\\s*$").matcher(raw);
-            if (mTrail.find()) {
-                year = Integer.parseInt(mTrail.group(1));
-                raw = raw.substring(0, mTrail.start()).trim();
-            }
-        }
-
-        if (raw.isEmpty()) {
+        String trimmed = query.trim();
+        if (trimmed.isEmpty()) {
             clearSearch();
             return;
         }
 
-        lastSearchLabel = label;
-        searchFirstPage(raw, year);
+        searchMode.setValue(true);
+        displayMode.setValue(DisplayMode.SEARCH);
+        clearFilterStateInternal();
+
+        searchCoordinator.setQuery(trimmed);
     }
 
     public void searchFirstPage(@NonNull String title, Integer year) {
-        String q = (title == null) ? "" : title.trim();
+        String q = title.trim();
         if (q.isEmpty()) {
             clearSearch();
             return;
@@ -432,33 +289,13 @@ public class MainActivityViewModel extends AndroidViewModel {
 
         searchMode.setValue(true);
         displayMode.setValue(DisplayMode.SEARCH);
-
         clearFilterStateInternal();
 
-        lastSearchQuery = q;
-        lastSearchYear = year;
-
-        searchHistoryRecordedThisSession = false;
-
-        searchRepository.searchFirstPage(q, year, new SearchRepository.SearchPolicyCallback() {
-            @Override
-            public void onFirstPageReturnedRealResults() {
-                // Record history ONLY after first successful page returns real results.
-                recordSearchHistoryIfNeeded();
-            }
-        });
+        searchCoordinator.searchFirstPage(q, year);
     }
 
     public void refreshSearch() {
-        if (lastSearchQuery == null || lastSearchQuery.trim().isEmpty()) return;
-
-        searchRepository.refreshSearch(new SearchRepository.SearchPolicyCallback() {
-            @Override
-            public void onFirstPageReturnedRealResults() {
-                // Record history ONLY after first successful page returns real results.
-                recordSearchHistoryIfNeeded();
-            }
-        });
+        searchCoordinator.refreshSearch();
     }
 
     public void clearSearch() {
@@ -478,56 +315,33 @@ public class MainActivityViewModel extends AndroidViewModel {
     public void restoreSearchUiStateOnly() {
         searchMode.setValue(true);
         displayMode.setValue(DisplayMode.SEARCH);
-    }
-
-    private void loadNextPageSearch() {
-        if (displayMode.getValue() != DisplayMode.SEARCH) return;
-
-        searchRepository.loadNextPageSearch(() -> {
-            // Record history ONLY after first successful page returns real results.
-            recordSearchHistoryIfNeeded();
-        });
+        searchCoordinator.clearSearchResultsOnly();
     }
 
     // Suggestions
-    public void fetchSuggestions(@NonNull String raw) {
-        String q = (raw == null) ? "" : raw.trim();
-        lastSuggestionQuery = q;
-
-        if (q.isEmpty()) {
-            searchRepository.cancelSuggestionsCall();
-            suggestionsLiveData.setValue(buildHistorySection(""));
-            return;
-        }
-
-        if (q.length() < 2) {
-            searchRepository.cancelSuggestionsCall();
-            suggestionsLiveData.setValue(buildHistorySection(q));
-            return;
-        }
-
-        searchRepository.fetchSuggestions(q);
+    public LiveData<List<Suggestion>> getSuggestionsLiveData() {
+        return searchCoordinator.getSuggestionsLiveData();
     }
 
-    public void clearSuggestions() {
-        searchRepository.clearSuggestions();
-        suggestionsLiveData.setValue(new ArrayList<>());
+    public void fetchSuggestions(@NonNull String raw) {
+        searchCoordinator.fetchSuggestions(raw);
     }
 
     public void clearSearchResultsOnly() {
-        searchRepository.clearSearchResultsOnly();
-        lastSearchQuery = "";
-        lastSearchYear = null;
+        searchCoordinator.clearSearchResultsOnly();
+    }
 
-        searchHistoryRecordedThisSession = false;
+    public void onSuggestionsSessionChanged(boolean active) {
+        searchCoordinator.onSuggestionsSessionChanged(active);
     }
 
     // Search History
-    public void removeSearchHistoryEntry(@NonNull String label) {
-        String q = (label == null) ? "" : label.trim();
-        if (q.isEmpty()) return;
+    public LiveData<List<String>> getRecentSearchQueries() {
+        return searchCoordinator.getRecentSearchQueries();
+    }
 
-        searchHistoryRepository.deleteQuery(q);
+    public void removeSearchHistoryEntry(@NonNull String label) {
+        searchCoordinator.removeSearchHistoryEntry(label);
     }
 
     // Favorites
@@ -552,69 +366,34 @@ public class MainActivityViewModel extends AndroidViewModel {
     }
 
     // =====================
-    // Helpers
+    // Private helpers
     // =====================
+
+    private void loadNextPageSearch() {
+        if (displayMode.getValue() != DisplayMode.SEARCH) return;
+        searchCoordinator.loadNextPageSearch();
+    }
 
     private void exitSearchModeInternal() {
         searchMode.setValue(false);
-
-        searchRepository.clearSearchResultsOnly();
-
-        lastSearchQuery = "";
-        lastSearchYear = null;
-
-        searchHistoryRecordedThisSession = false;
+        searchCoordinator.clearSearchResultsOnly();
     }
 
     private void clearFilterStateInternal() {
-        movieFilterApplied = false;
-        activeMovieFilterOptions.setValue(MovieFilterOptions.defaults());
+        filterCoordinator.clearMovieFilterState();
     }
 
-    private void recordSearchHistoryIfNeeded() {
-        if (searchHistoryRecordedThisSession) return;
+    // =====================
+    // Overrides
+    // =====================
 
-        searchHistoryRecordedThisSession = true;
+    @Override
+    protected void onCleared() {
+        super.onCleared();
 
-        String label = (lastSearchLabel == null) ? "" : lastSearchLabel.trim();
-        if (!label.isEmpty()) {
-            Log.d("SEARCH_HISTORY", "recordQuery label=[" + label + "]");
-            searchHistoryRepository.recordQuery(label);
-        }
-    }
+        movieRepository.getLoadingLiveData().removeObserver(repoLoadingObserver);
+        searchCoordinator.getSearchLoadingLiveData().removeObserver(searchRepoLoadingObserver);
 
-    @NonNull
-    private ArrayList<Suggestion> buildHistorySuggestions(@NonNull String rawQuery) {
-        String q = (rawQuery == null) ? "" : rawQuery.trim().toLowerCase();
-        List<String> history = recentSearchQueriesLiveData.getValue();
-        ArrayList<Suggestion> items = new ArrayList<>();
-
-        if (history == null) return items;
-
-        for (String h : history) {
-            if (h == null) continue;
-
-            String label = h.trim();
-            if (label.isEmpty()) continue;
-
-            if (!q.isEmpty() && !label.toLowerCase().contains(q)) continue;
-
-            items.add(Suggestion.history(label));
-        }
-
-        return items;
-    }
-
-    @NonNull
-    private ArrayList<Suggestion> buildHistorySection(@NonNull String rawQuery) {
-        ArrayList<Suggestion> historyItems = buildHistorySuggestions(rawQuery);
-        ArrayList<Suggestion> section = new ArrayList<>();
-
-        if (!historyItems.isEmpty()) {
-            section.add(Suggestion.header(Suggestion.HeaderKind.RECENT_SEARCHES));
-            section.addAll(historyItems);
-        }
-
-        return section;
+        searchCoordinator.onCleared();
     }
 }

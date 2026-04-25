@@ -290,13 +290,25 @@ public class MainActivity extends AppCompatActivity
             String pillText =
                     savedInstanceState.getString(KEY_SEARCH_PILL_TEXT, "");
 
-            if (wasInSearch) {
+            boolean wasFocused = savedInstanceState.getBoolean(KEY_WAS_SEARCH_PILL_FOCUSED, false);
 
-                restoringSearchUi = true;   // ← move it HERE
+            // IMPORTANT:
+            // wasFocused alone must NOT restore search mode.
+            // Only committed search (wasInSearch) should restore DisplayMode.SEARCH.
+            // Draft/focus-only restore must preserve underlying nav mode (Favorites/Filter)
+            // and must NOT trigger search results or search empty state.
+            if (wasInSearch || wasFocused) {
+                restoringSearchUi = true;
 
-                viewModel.restoreSearchUiStateOnly();
+                if (wasInSearch) {
+                    viewModel.restoreSearchUiStateOnly();
+                }
 
-                boolean wasFocused = savedInstanceState.getBoolean(KEY_WAS_SEARCH_PILL_FOCUSED, false);
+                if (selectedNavIndex == NAV_FAVORITES) {
+                    enterFavoritesMode();
+                } else if (selectedNavIndex == NAV_FILTER) {
+                    enterFilterMode(false, false);
+                }
 
                 if (input != null) {
                     input.setText(pillText);
@@ -306,17 +318,35 @@ public class MainActivity extends AppCompatActivity
                         clear.setVisibility(pillText.isEmpty() ? View.GONE : View.VISIBLE);
                     }
 
-                    if (wasFocused && !pillText.isEmpty()) {
+                    if (wasFocused) {
                         input.requestFocus();
-                        viewModel.fetchSuggestions(""); // show history list again
-                        if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
+
+                        input.post(() -> {
+                            try {
+                                if (input.hasFocus()) {
+                                    String textNow = (input.getText() == null) ? "" : input.getText().toString().trim();
+                                    viewModel.fetchSuggestions(textNow);
+                                    if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
+                                }
+                            } finally {
+                                restoringSearchUi = false;
+                            }
+                        });
                     } else {
                         input.clearFocus();
                         if (suggestionsList != null) suggestionsList.setVisibility(View.GONE);
+                        restoringSearchUi = false;
                     }
+                } else {
+                    restoringSearchUi = false;
                 }
+            }
 
-                restoringSearchUi = false;
+            if (input != null && clear != null) {
+                input.post(() -> {
+                    String textNow = (input.getText() == null) ? "" : input.getText().toString();
+                    clear.setVisibility(textNow.isEmpty() ? View.GONE : View.VISIBLE);
+                });
             }
         }
 
@@ -414,8 +444,10 @@ public class MainActivity extends AppCompatActivity
                 boolean wasInSearch =
                         savedInstanceState.getBoolean(KEY_WAS_IN_SEARCH_MODE, false);
 
-                if (!wasInSearch) {
+                boolean wasSearchPillFocused =
+                        savedInstanceState.getBoolean(KEY_WAS_SEARCH_PILL_FOCUSED, false);
 
+                if (!wasInSearch && !wasSearchPillFocused) {
                     selectNavIndex(selectedNavIndex, false);
 
                     if (restoringBrowseUi) {
@@ -873,6 +905,8 @@ public class MainActivity extends AppCompatActivity
 
         if (clear != null) {
             clear.setOnClickListener(v -> {
+                if (input == null) return;
+
                 if (searchSuggestionsRunnable != null) {
                     searchHandler.removeCallbacks(searchSuggestionsRunnable);
                     searchSuggestionsRunnable = null;
@@ -885,14 +919,11 @@ public class MainActivity extends AppCompatActivity
                 hideSuggestions();
                 viewModel.clearSearchResultsOnly();
 
-                // Clearing the pill does NOT mean leaving search.
-                // If the pill is focused and empty, restore recent history suggestions immediately.
-                viewModel.fetchSuggestions("");
-                if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
-
                 input.requestFocus();
                 showKeyboard(input);
 
+                viewModel.fetchSuggestions("");
+                if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
             });
         }
 
@@ -1020,11 +1051,8 @@ public class MainActivity extends AppCompatActivity
             }
 
             String text = (input.getText() == null) ? "" : input.getText().toString().trim();
-            if (text.isEmpty()) {
-                // Empty query → show recent search history suggestions immediately
-                viewModel.fetchSuggestions("");
-                if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
-            }
+            viewModel.fetchSuggestions(text);
+            if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
         });
     }
 
@@ -1041,9 +1069,15 @@ public class MainActivity extends AppCompatActivity
         applyTabPipes(modeTabs);
         applyTabPipes(unifiedTabs);
 
-        setMainTabsVisualsEnabled(true);
-        setModeTabsVisualsEnabled(false);
-        clearModeTabsSelection();
+        if (selectedNavIndex == NAV_FAVORITES || selectedNavIndex == NAV_FILTER) {
+            setMainTabsVisualsEnabled(false);
+            clearMainTabsSelection();
+            setModeTabsVisualsEnabled(true);
+        } else {
+            setMainTabsVisualsEnabled(true);
+            setModeTabsVisualsEnabled(false);
+            clearModeTabsSelection();
+        }
 
     }
 
@@ -1148,12 +1182,28 @@ public class MainActivity extends AppCompatActivity
                 ? modeTabsTextColors.getDefaultColor()
                 : 0;
 
+        int safeModeTab = -1;
+        if (selectedNavIndex == NAV_FAVORITES) {
+            safeModeTab = MODE_TAB_FAVORITES;
+        } else if (selectedNavIndex == NAV_FILTER) {
+            safeModeTab = MODE_TAB_FILTER;
+        }
+
+        if (safeModeTab >= 0 && safeModeTab < modeTabs.getTabCount()) {
+            restoringTabs = true;
+            TabLayout.Tab restored = modeTabs.getTabAt(safeModeTab);
+            if (restored != null) restored.select();
+            restoringTabs = false;
+        }
+
         modeTabs.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override
             public void onTabSelected(TabLayout.Tab tab) {
                 if (restoringTabs) return;
 
-                exitSearchUiAndMode();
+                if (isInSearchMode()) {
+                    exitSearchUiAndMode();
+                }
 
                 if (tab.getPosition() == MODE_TAB_FAVORITES) {
                     enterFavoritesMode();
@@ -1227,7 +1277,7 @@ public class MainActivity extends AppCompatActivity
 
                 int nav = tab.getPosition(); // unifiedTabs is already 0–4 in order
 
-                if (nav == NAV_FILTER && isInSearchMode()) {
+                if (isInSearchMode()) {
                     exitSearchUiAndMode();
                 }
 
@@ -1370,7 +1420,7 @@ public class MainActivity extends AppCompatActivity
             movieAdapter.setFavoriteIds(ids);
         });
 
-        viewModel.getLoading().observe(this, loading -> {
+        viewModel.getLoadingLiveData().observe(this, loading -> {
             updateEmptyState();
         });
 
@@ -1385,8 +1435,10 @@ public class MainActivity extends AppCompatActivity
 
         viewModel.getSuggestionsLiveData().observe(this, list -> {
 
-            boolean has = list != null && !list.isEmpty();
-            if (has) {
+            boolean shouldShowSuggestions =
+                    list != null && !list.isEmpty() && input != null && input.hasFocus();
+
+            if (shouldShowSuggestions) {
                 suggestionsAdapter.submit(list);
                 if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
             } else {
@@ -1435,11 +1487,6 @@ public class MainActivity extends AppCompatActivity
         // If we're in SEARCH and the user navigates to a browse tab, fully exit search UI + mode.
         if (!restoringSearchState && isInSearchMode() && navIndex <= NAV_NEW) {
             exitSearchUiAndMode();
-        }
-
-        // Defensive: if we're moving into browse, the pill should never retain stale text.
-        if (!restoringSearchState && navIndex <= NAV_NEW) {
-            clearSearchBarUi();
         }
 
         if (input != null) input.clearFocus();
@@ -1570,7 +1617,6 @@ public class MainActivity extends AppCompatActivity
     }
 
     private void enterFavoritesMode() {
-
         // Remember where we came from (for Back behavior).
         if (mainTabs != null) {
             int pos = mainTabs.getSelectedTabPosition();
@@ -1579,7 +1625,6 @@ public class MainActivity extends AppCompatActivity
             lastBrowseTabIndex = selectedTabIndex;
         }
 
-        exitSearchUiAndMode();
         uiMode = UiMode.FAVORITES;
 
         selectedNavIndex = NAV_FAVORITES;
@@ -2239,7 +2284,7 @@ public class MainActivity extends AppCompatActivity
             return;
         }
 
-        Boolean loadingObj = viewModel.getLoading().getValue();
+        Boolean loadingObj = viewModel.getLoadingLiveData().getValue();
         boolean loading = Boolean.TRUE.equals(loadingObj);
 
         List<Movie> current = viewModel.getDisplayMovies().getValue();
@@ -2377,7 +2422,7 @@ public class MainActivity extends AppCompatActivity
 
         if (!inSearch && uiMode != UiMode.BROWSE) return;
 
-        boolean loading = Boolean.TRUE.equals(viewModel.getLoading().getValue());
+        boolean loading = Boolean.TRUE.equals(viewModel.getLoadingLiveData().getValue());
 
         boolean empty = viewModel.getDisplayMovies().getValue() == null
                 || viewModel.getDisplayMovies().getValue().isEmpty();
