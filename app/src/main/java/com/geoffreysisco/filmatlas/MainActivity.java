@@ -304,10 +304,12 @@ public class MainActivity extends AppCompatActivity
                     viewModel.restoreSearchUiStateOnly();
                 }
 
-                if (selectedNavIndex == NAV_FAVORITES) {
-                    enterFavoritesMode();
-                } else if (selectedNavIndex == NAV_FILTER) {
-                    enterFilterMode(false, false);
+                if (!wasInSearch) {
+                    if (selectedNavIndex == NAV_FAVORITES) {
+                        enterFavoritesMode();
+                    } else if (selectedNavIndex == NAV_FILTER) {
+                        enterFilterMode(false, false);
+                    }
                 }
 
                 if (input != null) {
