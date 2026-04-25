@@ -301,6 +301,7 @@ public class MainActivity extends AppCompatActivity
                 restoringSearchUi = true;
 
                 if (wasInSearch) {
+                    restoreSearchReturnTargetFromNavIndex(selectedNavIndex);
                     viewModel.restoreSearchUiStateOnly();
                 }
 
@@ -2569,6 +2570,21 @@ public class MainActivity extends AppCompatActivity
         } else if (uiMode == UiMode.FILTER) {
             lastModeTabIndex = MODE_TAB_FILTER;
         }
+    }
+
+    private void restoreSearchReturnTargetFromNavIndex(int navIndex) {
+        if (navIndex == NAV_FAVORITES) {
+            lastModeTabIndex = MODE_TAB_FAVORITES;
+            return;
+        }
+
+        if (navIndex == NAV_FILTER) {
+            lastModeTabIndex = MODE_TAB_FILTER;
+            return;
+        }
+
+        lastModeTabIndex = -1;
+        lastBrowseTabIndex = mapNavIndexToBrowseTab(navIndex);
     }
 
     private void hideSuggestions() {
