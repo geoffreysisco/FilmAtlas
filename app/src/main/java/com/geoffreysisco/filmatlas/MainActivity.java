@@ -1737,8 +1737,9 @@ public class MainActivity extends AppCompatActivity
         if (binding.recyclerView.getVisibility() == View.VISIBLE
                 && movieAdapter != null
                 && movieAdapter.getItemCount() == 0) {
-
-            binding.contentContainer.post(() -> showFilterEmptyState(true));
+            binding.contentContainer.post(() ->
+                    showFilterEmptyState(viewModel.isMovieFilterApplied())
+            );
         }
 
         applyMainTabTitles();
