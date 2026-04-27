@@ -7,9 +7,16 @@
         android:id="@+id/root_layout"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:clickable="true"
-        android:focusable="true"
         tools:context="com.geoffreysisco.filmatlas.MainActivity">
+
+        <View
+            android:id="@+id/initial_focus_anchor"
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toStartOf="parent" />
 
         <!-- Top app bar (search pill is a toolbar child for full-width layout) -->
         <com.google.android.material.appbar.MaterialToolbar

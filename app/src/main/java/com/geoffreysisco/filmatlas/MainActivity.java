@@ -13,6 +13,7 @@ import android.os.Parcelable;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.GestureDetector;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -118,6 +119,7 @@ public class MainActivity extends AppCompatActivity
 
     private final Handler searchHandler = new Handler(Looper.getMainLooper());
     private boolean suppressSuggestionFetch = false;
+    private boolean suppressSuggestionsAfterSubmit = false;
     private boolean restoringSearchUi = false;
     private boolean restoringBrowseUi = false;
     private boolean restoredBrowseSnapshot = false;
@@ -887,6 +889,7 @@ public class MainActivity extends AppCompatActivity
                 }
 
                 if (suppressSuggestionFetch) return;
+                suppressSuggestionsAfterSubmit = false;
 
                 if (searchSuggestionsRunnable != null) {
                     searchHandler.removeCallbacks(searchSuggestionsRunnable);
@@ -931,7 +934,14 @@ public class MainActivity extends AppCompatActivity
         }
 
         input.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId != EditorInfo.IME_ACTION_SEARCH) return false;
+            boolean isImeSearch = actionId == EditorInfo.IME_ACTION_SEARCH;
+
+            boolean isEnterKey =
+                    event != null
+                            && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
+                            && event.getAction() == KeyEvent.ACTION_DOWN;
+
+            if (!isImeSearch && !isEnterKey) return false;
 
             if (!isInSearchMode()) {
                 rememberLastPlaceBeforeSearch();
@@ -945,6 +955,7 @@ public class MainActivity extends AppCompatActivity
                 searchSuggestionsRunnable = null;
             }
 
+            suppressSuggestionsAfterSubmit = true;
             hideSuggestions();
 
             hideKeyboard(v);
@@ -1054,6 +1065,7 @@ public class MainActivity extends AppCompatActivity
             }
 
             String text = (input.getText() == null) ? "" : input.getText().toString().trim();
+            suppressSuggestionsAfterSubmit = false;
             viewModel.fetchSuggestions(text);
             if (suggestionsList != null) suggestionsList.setVisibility(View.VISIBLE);
         });
@@ -1439,7 +1451,11 @@ public class MainActivity extends AppCompatActivity
         viewModel.getSuggestionsLiveData().observe(this, list -> {
 
             boolean shouldShowSuggestions =
-                    list != null && !list.isEmpty() && input != null && input.hasFocus();
+                    !suppressSuggestionsAfterSubmit
+                            && list != null
+                            && !list.isEmpty()
+                            && input != null
+                            && input.hasFocus();
 
             if (shouldShowSuggestions) {
                 suggestionsAdapter.submit(list);
